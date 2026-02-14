@@ -5,14 +5,18 @@ Production-grade implementations of various rate limiting algorithms
 with comprehensive error handling and edge case management.
 """
 
+from __future__ import annotations  # postponed evaluation
+
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
-from .core import RateThrottleRule, RateThrottleStatus
+if TYPE_CHECKING:
+    from .core import RateThrottleRule, RateThrottleStatus
+    from .storage_backend import StorageBackend
+
 from .exceptions import StorageError
-from .storage_backend import StorageBackend
 
 logger = logging.getLogger(__name__)
 

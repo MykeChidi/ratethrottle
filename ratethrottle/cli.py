@@ -13,11 +13,22 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .analytics import RateThrottleAnalytics
-from .config import ConfigManager
-from .core import RateThrottleCore
-from .ddos import DDoSProtection
-from .exceptions import ConfigurationError
+# Handle both direct execution and package import
+try:
+    # Try package import first
+    from .analytics import RateThrottleAnalytics
+    from .config import ConfigManager
+    from .core import RateThrottleCore
+    from .ddos import DDoSProtection
+    from .exceptions import ConfigurationError
+except ImportError:
+    # Direct execution - add parent directory to path
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from ratethrottle.analytics import RateThrottleAnalytics
+    from ratethrottle.config import ConfigManager
+    from ratethrottle.core import RateThrottleCore
+    from ratethrottle.ddos import DDoSProtection
+    from ratethrottle.exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +81,7 @@ def print_header(message: str) -> None:
 # ============================================
 
 
-class SimpleDashboard:
+class RateThrottleDashboard:
     """
     Simple terminal dashboard for rate limiting monitoring
 
@@ -241,7 +252,7 @@ class RateThrottleCLI:
         signal.signal(signal.SIGINT, signal_handler)
 
         # Start dashboard
-        dashboard = SimpleDashboard(self.limiter, self.ddos, self.analytics)
+        dashboard = RateThrottleDashboard(self.limiter, self.ddos, self.analytics)
 
         try:
             dashboard.start(interval=args.interval if hasattr(args, "interval") else 2)

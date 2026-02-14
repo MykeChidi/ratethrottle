@@ -9,9 +9,18 @@ import logging
 from functools import wraps
 from typing import Callable, List, Optional, Union
 
-from .core import RateThrottleCore, RateThrottleRule
-from .exceptions import ConfigurationError, RateLimitExceeded
-from .helpers import get_client_ip, parse_rate_limit
+try:
+    from .core import RateThrottleCore, RateThrottleRule
+    from .exceptions import ConfigurationError, RateLimitExceeded
+    from .helpers import get_client_ip, parse_rate_limit
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+    from ratethrottle.core import RateThrottleCore, RateThrottleRule
+    from ratethrottle.exceptions import ConfigurationError, RateLimitExceeded
+    from ratethrottle.helpers import get_client_ip, parse_rate_limit
 
 logger = logging.getLogger(__name__)
 
