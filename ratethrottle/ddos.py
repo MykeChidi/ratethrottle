@@ -200,7 +200,7 @@ class DDoSProtection:
                 unique_endpoints=0,
                 suspicious_score=0.0,
                 is_suspicious=False,
-                analysis_window=self.window,
+                analysis_window=int(self.window),
                 timestamp=time.time(),
             )
 
@@ -217,7 +217,7 @@ class DDoSProtection:
                 unique_endpoints=0,
                 suspicious_score=0.0,
                 is_suspicious=False,
-                analysis_window=self.window,
+                analysis_window=int(self.window),
                 timestamp=now,
                 metadata={"whitelisted": 1.0},
             )
@@ -254,7 +254,7 @@ class DDoSProtection:
             unique_endpoints=unique_endpoints,
             suspicious_score=suspicious_score,
             is_suspicious=is_suspicious,
-            analysis_window=self.window,
+            analysis_window=int(self.window),
             timestamp=now,
             metadata=score_breakdown,
         )
@@ -405,7 +405,7 @@ class DDoSProtection:
 
             # Block if multiple suspicious events or very high score
             if len(recent_suspicious) >= 3 or pattern.suspicious_score >= 0.8:
-                self.block_ip(pattern.identifier, self.block_duration)
+                self.block_ip(pattern.identifier, int(self.block_duration))
                 self.stats["auto_blocked"] += 1
                 logger.warning(
                     f"Auto-blocked: {pattern.identifier} " f"(duration: {self.block_duration}s)"

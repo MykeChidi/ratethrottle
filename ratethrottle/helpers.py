@@ -216,7 +216,7 @@ def get_client_ip(
 
     if x_forwarded_for:
         # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
-        ips = [ip.strip() for ip in x_forwarded_for.split(",")]
+        ips = [ip.strip() for ip in str(x_forwarded_for).split(",")]
 
         if trusted_proxies:
             # Find the first IP that's not a trusted proxy
@@ -233,14 +233,15 @@ def get_client_ip(
     )
 
     if x_real_ip:
-        return x_real_ip.strip()
+        return str(x_real_ip).strip()
 
     # Fallback to remote address
     if hasattr(request, "remote_addr") and request.remote_addr:
-        return request.remote_addr
+        return str(request.remote_addr)
     elif hasattr(request, "client") and request.client:
-        return request.client.host
+        return str(request.client.host)
     elif hasattr(request, "META") and request.META.get("REMOTE_ADDR"):
-        return request.META.get("REMOTE_ADDR")
+        remote_addr = request.META.get("REMOTE_ADDR")
+        return str(remote_addr) if remote_addr else default
 
-    return default
+    return default  # type: ignore

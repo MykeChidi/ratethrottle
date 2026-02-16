@@ -10,7 +10,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, DefaultDict, Dict, List, Optional, Set
 
 from .exceptions import ConfigurationError
 
@@ -69,7 +69,7 @@ class RateThrottleAnalytics:
         self.requests: List[Dict] = []
 
         # Aggregated statistics
-        self.stats = {
+        self.stats: Dict[str, Any] = {
             "total_requests": 0,
             "total_violations": 0,
             "unique_identifiers": set(),
@@ -293,7 +293,7 @@ class RateThrottleAnalytics:
                 ]
 
             # Count violations per identifier
-            violator_counts = defaultdict(int)
+            violator_counts: DefaultDict[str, int] = defaultdict(int)
             for violation in violations_to_analyze:
                 identifier = violation.get("_original_identifier") or violation.get(
                     "identifier", "unknown"
@@ -346,7 +346,7 @@ class RateThrottleAnalytics:
                 time_format = "%Y-%m-%d %H:00"
 
             # Count violations by time bucket
-            timeline = defaultdict(int)
+            timeline: DefaultDict[str, int] = defaultdict(int)
             for violation in self.violations:
                 if "timestamp" not in violation:
                     continue
@@ -381,7 +381,7 @@ class RateThrottleAnalytics:
             >>> print(stats['api_default']['violation_rate'])
         """
         try:
-            stats = defaultdict(
+            stats: DefaultDict[str, Dict[str, Any]] = defaultdict(
                 lambda: {
                     "total_requests": 0,
                     "allowed": 0,
@@ -533,7 +533,7 @@ class RateThrottleAnalytics:
                 return
 
             # Get all possible fields
-            all_fields = set()
+            all_fields: Set[str] = set()
             for record in data:
                 all_fields.update(record.keys())
 

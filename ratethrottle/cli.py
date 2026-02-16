@@ -240,6 +240,9 @@ class RateThrottleCLI:
 
         self._load_config(args.config)
 
+        assert self.limiter is not None, "Limiter not initialized"  # nosec
+        assert self.ddos is not None, "DDoS protection not initialized"  # nosec
+
         print_info(f"Rules loaded: {len(self.limiter.rules)}")
         print_info(f"DDoS Protection: {'ENABLED' if self.ddos.enabled else 'DISABLED'}")
 
@@ -252,6 +255,7 @@ class RateThrottleCLI:
         signal.signal(signal.SIGINT, signal_handler)
 
         # Start dashboard
+        assert self.limiter is not None, "Limiter not initialized"  # nosec
         dashboard = RateThrottleDashboard(self.limiter, self.ddos, self.analytics)
 
         try:
@@ -265,6 +269,8 @@ class RateThrottleCLI:
         print_header("RateThrottle Test")
 
         self._load_config(args.config)
+
+        assert self.limiter is not None, "Limiter not initialized"  # nosec
 
         # Validate rule exists
         if args.rule not in self.limiter.rules:
@@ -316,6 +322,8 @@ class RateThrottleCLI:
         try:
             self._load_config(args.config)
 
+            assert self.config is not None, "Config not initialized"  # nosec
+
             if args.show:
                 import yaml
 
@@ -344,6 +352,8 @@ class RateThrottleCLI:
         print_header("RateThrottle List Management")
 
         self._load_config(args.config)
+
+        assert self.limiter is not None, "Limiter not initialized"  # nosec
 
         if args.whitelist_add:
             self.limiter.add_to_whitelist(args.whitelist_add)
@@ -385,6 +395,8 @@ class RateThrottleCLI:
         print_header("RateThrottle Statistics")
 
         self._load_config(args.config)
+
+        assert self.analytics is not None, "Analytics not initialized"  # nosec
 
         if args.export:
             try:

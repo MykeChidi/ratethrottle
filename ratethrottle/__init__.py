@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 
 __version__ = "1.0.0"
-__author__ = "RateThrottle Contributors"
+__author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [
     # Core

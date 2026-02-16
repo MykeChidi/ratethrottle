@@ -10,7 +10,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 from .exceptions import (
     InvalidRuleError,
@@ -198,7 +198,7 @@ class RateThrottleCore:
         ...     pass
     """
 
-    STRATEGIES = {
+    STRATEGIES: Dict[str, Type[RateLimitStrategy]] = {
         "token_bucket": TokenBucketStrategy,
         "leaky_bucket": LeakyBucketStrategy,
         "fixed_window": FixedWindowStrategy,
@@ -220,7 +220,7 @@ class RateThrottleCore:
         self.whitelist: Set[str] = set()
         self.blacklist: Set[str] = set()
         self.violation_callbacks: List[Callable[[RateThrottleViolation], None]] = []
-        self.metrics = {
+        self.metrics: Dict[str, Any] = {
             "total_requests": 0,
             "allowed_requests": 0,
             "blocked_requests": 0,
@@ -499,28 +499,29 @@ class RateThrottleCore:
                 if self.storage.exists(block_key):
                     block_until = self.storage.get(block_key)
                     # Check if block has expired
-                    if block_until <= time.time():
-                        # Block has expired, remove it
-                        self.storage.delete(block_key)
-                        logger.info(f"Block expired: {identifier}")
-                    else:
-                        # Still blocked
-                        retry_after = max(1, int(block_until - time.time()))
-                        self.metrics["blocked_requests"] += 1
-                        logger.debug(
-                            f"Blocked (rate limit): {identifier} for rule {rule_name}, "
-                            f"retry after {retry_after}s"
-                        )
+                    if block_until is not None and isinstance(block_until, (int, float)):
+                        if block_until <= time.time():
+                            # Block has expired, remove it
+                            self.storage.delete(block_key)
+                            logger.info(f"Block expired: {identifier}")
+                        else:
+                            # Still blocked
+                            retry_after = max(1, int(block_until - time.time()))
+                            self.metrics["blocked_requests"] += 1
+                            logger.debug(
+                                f"Blocked (rate limit): {identifier} for rule {rule_name}, "
+                                f"retry after {retry_after}s"
+                            )
 
-                        return RateThrottleStatus(
-                            allowed=False,
-                            remaining=0,
-                            limit=rule.limit,
-                            reset_time=block_until,
-                            retry_after=retry_after,
-                            rule_name=rule_name,
-                            blocked=True,
-                        )
+                            return RateThrottleStatus(
+                                allowed=False,
+                                remaining=0,
+                                limit=rule.limit,
+                                reset_time=int(block_until),
+                                retry_after=retry_after,
+                                rule_name=rule_name,
+                                blocked=True,
+                            )
             except Exception as e:
                 logger.error(f"Storage error checking block status: {e}")
                 raise StorageError(f"Failed to check block status: {e}") from e

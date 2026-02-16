@@ -93,13 +93,15 @@ class TokenBucketStrategy(RateLimitStrategy):
 
             if state is None:
                 # Initialize new bucket
-                state = {"tokens": float(rule.burst), "last_update": now}
-                logger.debug(f"Initialized token bucket for {identifier}: " f"{rule.burst} tokens")
+                burst_value = float(rule.burst if rule.burst is not None else rule.limit)
+                state = {"tokens": burst_value, "last_update": now}
+                logger.debug(f"Initialized token bucket for {identifier}: " f"{burst_value} tokens")
 
             # Validate state structure
             if not isinstance(state, dict) or "tokens" not in state or "last_update" not in state:
                 logger.warning(f"Invalid token bucket state for {identifier}, reinitializing")
-                state = {"tokens": float(rule.burst), "last_update": now}
+                burst_value = float(rule.burst if rule.burst is not None else rule.limit)
+                state = {"tokens": burst_value, "last_update": now}
 
             # Calculate refill
             time_passed = now - state["last_update"]
@@ -107,7 +109,8 @@ class TokenBucketStrategy(RateLimitStrategy):
             tokens_to_add = time_passed * refill_rate
 
             # Update tokens (cap at burst limit)
-            state["tokens"] = min(float(rule.burst), state["tokens"] + tokens_to_add)
+            burst_limit = float(rule.burst if rule.burst is not None else rule.limit)
+            state["tokens"] = min(burst_limit, state["tokens"] + tokens_to_add)
             state["last_update"] = now
 
             # Check if we have tokens available

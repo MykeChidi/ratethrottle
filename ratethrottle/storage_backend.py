@@ -416,7 +416,7 @@ class RedisStorage(StorageBackend):
 
     def _serialize(self, value: Any) -> Union[str, bytes]:
         """Serialize value for storage"""
-        if isinstance(value, (str, bytes, int, float)):
+        if isinstance(value, (str, bytes)):
             return value
 
         if self.serialize_json:
@@ -540,7 +540,8 @@ class RedisStorage(StorageBackend):
     def health_check(self) -> bool:
         """Check if Redis connection is healthy"""
         try:
-            return self.redis.ping()
+            self.redis.ping()
+            return True
         except Exception as e:
             logger.error(f"Redis health check failed: {e}")
             return False
@@ -574,7 +575,7 @@ class RedisStorage(StorageBackend):
             "redis_info": self.get_redis_info(),
         }
 
-    def clear_prefix(self) -> int:
+    def clear_prefix(self) -> Any:
         """
         Clear all keys with the configured prefix
 

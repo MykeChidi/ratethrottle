@@ -227,7 +227,7 @@ class FlaskRateLimiter:
                         pass  # nosec
 
                 # Check if method should be limited
-                if methods and request.method not in methods:
+                if methods and request is not None and request.method not in methods:
                     return f(*args, **kwargs)
 
                 try:
@@ -236,37 +236,47 @@ class FlaskRateLimiter:
                     identifier = key_getter()
 
                     # Check rate limit
-                    status = self.limiter.check_rate_limit(
-                        identifier,
-                        rule_name,
-                        metadata={
-                            "endpoint": request.endpoint,
-                            "method": request.method,
-                            "path": request.path,
-                            "remote_addr": request.remote_addr,
-                        },
-                    )
+                    if request is not None:
+                        status = self.limiter.check_rate_limit(
+                            identifier,
+                            rule_name,
+                            metadata={
+                                "endpoint": request.endpoint if request.endpoint else "unknown",
+                                "method": request.method if request.method else "unknown",
+                                "path": request.path if request.path else "unknown",
+                                "remote_addr": (
+                                    request.remote_addr if request.remote_addr else "unknown"
+                                ),
+                            },
+                        )
+                    else:
+                        # Fallback if request is None
+                        status = self.limiter.check_rate_limit(identifier, rule_name)
 
                     # Store status in g for after_request handler
-                    g.ratelimit_status = status
+                    if g is not None:
+                        g.ratelimit_status = status
 
                     # Check if allowed
                     if not status.allowed:
                         error_msg = (
                             error_message
-                            or f"Rate limit exceeded. Retry after {status.retry_after} seconds"
+                            or f"Rate limit exceeded. Retry after {status.retry_after or 0} seconds"
                         )
 
                         # Create exception with details
                         exc = RateLimitExceeded(
                             error_msg,
-                            retry_after=status.retry_after,
+                            retry_after=status.retry_after or 0,
                             limit=status.limit,
                             remaining=status.remaining,
                             reset_time=status.reset_time,
                         )
 
-                        abort(429, description=exc)
+                        if abort is not None:
+                            abort(429, description=exc)
+                        else:
+                            raise exc
 
                     # Call original function
                     return f(*args, **kwargs)
@@ -574,7 +584,8 @@ class DjangoRateLimitMiddleware:
                             elif hasattr(response, "setdefault"):
                                 response.setdefault(key, value)
                         except Exception:
-                            pass  # Response doesn't support header setting
+                            # Response doesn't support header setting
+                            pass  # nosec
             except Exception as e:
                 logger.debug(f"Could not set rate limit headers: {e}")
 

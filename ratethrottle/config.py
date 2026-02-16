@@ -464,23 +464,27 @@ class ConfigManager:
 
     def get_storage_config(self) -> Dict[str, Any]:
         """Get storage configuration"""
-        return self.config.get("storage", {})
+        result = self.config.get("storage", {})
+        return result if isinstance(result, dict) else {}
 
     def get_ddos_config(self) -> Dict[str, Any]:
         """Get DDoS protection configuration"""
-        return self.config.get("ddos_protection", {})
+        result = self.config.get("ddos_protection", {})
+        return result if isinstance(result, dict) else {}
 
     def get_monitoring_config(self) -> Dict[str, Any]:
         """Get monitoring configuration"""
-        return self.config.get("monitoring", {})
+        result = self.config.get("monitoring", {})
+        return result if isinstance(result, dict) else {}
 
     def get_alerts_config(self) -> Dict[str, Any]:
         """Get alerts configuration"""
-        return self.config.get("alerts", {})
+        result = self.config.get("alerts", {})
+        return result if isinstance(result, dict) else {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""
-        return self._deep_copy(self.config)
+        return self._deep_copy(self.config)  # type: ignore
 
     def __repr__(self) -> str:
         """String representation"""
