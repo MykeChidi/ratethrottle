@@ -82,6 +82,8 @@ class TokenBucketStrategy(RateLimitStrategy):
         self, identifier: str, rule: RateThrottleRule, storage: StorageBackend
     ) -> Tuple[bool, RateThrottleStatus]:
         """Check if request is allowed"""
+        from .core import RateThrottleStatus
+
         key = f"tb:{rule.name}:{identifier}"
         now = time.time()
 
@@ -185,7 +187,9 @@ class LeakyBucketStrategy(RateLimitStrategy):
         self, identifier: str, rule: RateThrottleRule, storage: StorageBackend
     ) -> Tuple[bool, RateThrottleStatus]:
         """Check if request is allowed"""
-        queue_key = f"lb:q:{rule.name}:{identifier}"
+        from .core import RateThrottleStatus
+
+        queue_key = f"lb:{rule.name}:{identifier}"
         now = time.time()
 
         try:
@@ -281,6 +285,8 @@ class FixedWindowStrategy(RateLimitStrategy):
         self, identifier: str, rule: RateThrottleRule, storage: StorageBackend
     ) -> Tuple[bool, RateThrottleStatus]:
         """Check if request is allowed"""
+        from .core import RateThrottleStatus
+
         now = time.time()
 
         # Calculate window start (aligned to window boundaries)
@@ -375,6 +381,8 @@ class SlidingWindowStrategy(RateLimitStrategy):
         self, identifier: str, rule: RateThrottleRule, storage: StorageBackend
     ) -> Tuple[bool, RateThrottleStatus]:
         """Check if request is allowed"""
+        from .core import RateThrottleStatus
+
         key = f"sw:{rule.name}:{identifier}"
         now = time.time()
         window_start = now - rule.window

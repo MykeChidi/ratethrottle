@@ -494,25 +494,33 @@ class RateThrottleCore:
 
             # Check if currently blocked
             block_key = f"blocked:{rule_name}:{identifier}"
+
             try:
                 if self.storage.exists(block_key):
                     block_until = self.storage.get(block_key)
-                    retry_after = max(1, int(block_until - time.time()))
-                    self.metrics["blocked_requests"] += 1
-                    logger.debug(
-                        f"Blocked (rate limit): {identifier} for rule {rule_name}, "
-                        f"retry after {retry_after}s"
-                    )
+                    # Check if block has expired
+                    if block_until <= time.time():
+                        # Block has expired, remove it
+                        self.storage.delete(block_key)
+                        logger.info(f"Block expired: {identifier}")
+                    else:
+                        # Still blocked
+                        retry_after = max(1, int(block_until - time.time()))
+                        self.metrics["blocked_requests"] += 1
+                        logger.debug(
+                            f"Blocked (rate limit): {identifier} for rule {rule_name}, "
+                            f"retry after {retry_after}s"
+                        )
 
-                    return RateThrottleStatus(
-                        allowed=False,
-                        remaining=0,
-                        limit=rule.limit,
-                        reset_time=block_until,
-                        retry_after=retry_after,
-                        rule_name=rule_name,
-                        blocked=True,
-                    )
+                        return RateThrottleStatus(
+                            allowed=False,
+                            remaining=0,
+                            limit=rule.limit,
+                            reset_time=block_until,
+                            retry_after=retry_after,
+                            rule_name=rule_name,
+                            blocked=True,
+                        )
             except Exception as e:
                 logger.error(f"Storage error checking block status: {e}")
                 raise StorageError(f"Failed to check block status: {e}") from e

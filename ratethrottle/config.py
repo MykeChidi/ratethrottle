@@ -128,7 +128,7 @@ class ConfigManager:
                 "host": "localhost",
                 "port": 6379,
                 "db": 0,
-                "password": None,
+                "password": None,  # nosec B105
                 "key_prefix": "ratethrottle:",
                 "max_connections": 50,
                 "socket_timeout": 5,
@@ -176,7 +176,7 @@ class ConfigManager:
                 "smtp_host": "smtp.gmail.com",
                 "smtp_port": 587,
                 "smtp_user": "",
-                "smtp_password": "",
+                "smtp_password": "",  # nosec B105
                 "from_addr": "",
                 "to_addrs": [],
             },

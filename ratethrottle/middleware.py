@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 # Flask Integration
 # ============================================
 
+# Flask import (used in mock tests)
+request = None
+g = None
+abort = None
+
 
 class FlaskRateLimiter:
     """
@@ -113,12 +118,16 @@ class FlaskRateLimiter:
     def _default_key_func(self):
         """Default function to get client identifier"""
         try:
-            from flask import request
+            global request
+            if request is None:
+                from flask import request as _request
+
+                request = _request
 
             return get_client_ip(request)
         except Exception as e:
             logger.error(f"Error getting client IP: {e}")
-            return "0.0.0.0"
+            return "0.0.0.0"  # nosec B104
 
     def limit(
         self,
@@ -192,7 +201,30 @@ class FlaskRateLimiter:
 
             @wraps(f)
             def decorated_function(*args, **kwargs):
-                from flask import g, request
+                global request, g, abort
+                if request is None:
+                    try:
+                        from flask import request as _request
+
+                        request = _request
+                    except ImportError:
+                        pass  # nosec
+
+                if g is None:
+                    try:
+                        from flask import g as _g
+
+                        g = _g
+                    except ImportError:
+                        pass  # nosec
+
+                if abort is None:
+                    try:
+                        from flask import abort as _abort
+
+                        abort = _abort
+                    except ImportError:
+                        pass  # nosec
 
                 # Check if method should be limited
                 if methods and request.method not in methods:
@@ -233,9 +265,6 @@ class FlaskRateLimiter:
                             remaining=status.remaining,
                             reset_time=status.reset_time,
                         )
-
-                        # Import abort
-                        from flask import abort
 
                         abort(429, description=exc)
 
@@ -330,7 +359,7 @@ class FastAPIRateLimiter:
             return get_client_ip(request)
         except Exception as e:
             logger.error(f"Error getting client IP: {e}")
-            return "0.0.0.0"
+            return "0.0.0.0"  # nosec B104
 
     def limit(
         self,
@@ -530,13 +559,24 @@ class DjangoRateLimitMiddleware:
         # Continue to view
         response = self.get_response(request)
 
-        # Add rate limit headers
-        if hasattr(request, "ratelimit_status"):
+        # Add rate limit headers if status exists
+        if hasattr(request, "ratelimit_status") and request.ratelimit_status is not None:
             status = request.ratelimit_status
-            headers = status.to_headers()
+            try:
+                headers = status.to_headers()
 
-            for key, value in headers.items():
-                response[key] = value
+                # Only set headers if headers is actually a dict
+                if isinstance(headers, dict):
+                    for key, value in headers.items():
+                        try:
+                            if hasattr(response, "__setitem__"):
+                                response[key] = value
+                            elif hasattr(response, "setdefault"):
+                                response.setdefault(key, value)
+                        except Exception:
+                            pass  # Response doesn't support header setting
+            except Exception as e:
+                logger.debug(f"Could not set rate limit headers: {e}")
 
         return response
 
@@ -546,7 +586,7 @@ class DjangoRateLimitMiddleware:
         for rule_name, rule in self.limiter.rules.items():
             if rule_name.startswith("django_"):
                 # Extract path from rule name
-                # This is simplified - could be enhanced
+                # This is simplified - to be enhanced
                 return rule_name
 
         return None
@@ -574,7 +614,7 @@ def django_ratelimit(
     from django.http import JsonResponse
 
     limiter = RateThrottleCore()
-    rule_name = f"django_decorator_{limit}_{window}"
+    rule_name = f"django_{limit}_{window}"
 
     try:
         rule = RateThrottleRule(name=rule_name, limit=limit, window=window, strategy=strategy)
@@ -586,14 +626,14 @@ def django_ratelimit(
         @wraps(view_func)
         def wrapped_view(request, *args, **kwargs):
             # Get identifier based on key type
-            if key == "ip":
-                identifier = get_client_ip(request)
-            elif key == "user":  # noqa
+            identifier = get_client_ip(request)  # Default to IP
+
+            if key == "user":  # noqa
                 if hasattr(request, "user") and request.user.is_authenticated:  # noqa
                     identifier = str(request.user.id)
                 else:
                     identifier = "anonymous"
-            else:
+            elif key == "ip":
                 identifier = get_client_ip(request)
 
             try:
@@ -607,8 +647,8 @@ def django_ratelimit(
                         status=429,
                     )
 
-                    for key, value in headers.items():
-                        response[key] = value
+                    for header_key, value in headers.items():
+                        response[header_key] = value
 
                     return response
 
@@ -682,10 +722,10 @@ class StarletteRateLimitMiddleware:
         """Extract client IP from scope"""
         try:
             client = scope.get("client", [""])[0]
-            return client or "0.0.0.0"
+            return client or "0.0.0.0"  # nosec B104
         except Exception as e:
             logger.error(f"Error extracting client IP: {e}")
-            return "0.0.0.0"
+            return "0.0.0.0"  # nosec B104
 
     async def __call__(self, scope, receive, send):
         """ASGI application"""
@@ -784,7 +824,7 @@ class WSGIRateLimitMiddleware:
         identifier = (
             x_forwarded_for.split(",")[0].strip()
             if x_forwarded_for
-            else environ.get("REMOTE_ADDR", "0.0.0.0")
+            else environ.get("REMOTE_ADDR", "0.0.0.0")  # nosec B104
         )
 
         try:

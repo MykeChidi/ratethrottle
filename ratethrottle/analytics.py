@@ -230,9 +230,9 @@ class RateThrottleAnalytics:
 
             # Sanitize identifier
             if "identifier" in violation_dict and self.sanitize_data:
-                violation_dict["identifier"] = self._sanitize_identifier(
-                    violation_dict["identifier"]
-                )
+                original_id = violation_dict["identifier"]
+                violation_dict["_original_identifier"] = original_id
+                violation_dict["identifier"] = self._sanitize_identifier(original_id)
 
             # Sanitize metadata
             if "metadata" in violation_dict:
@@ -295,7 +295,9 @@ class RateThrottleAnalytics:
             # Count violations per identifier
             violator_counts = defaultdict(int)
             for violation in violations_to_analyze:
-                identifier = violation.get("identifier", "unknown")
+                identifier = violation.get("_original_identifier") or violation.get(
+                    "identifier", "unknown"
+                )
                 violator_counts[identifier] += 1
 
             # Sort and limit

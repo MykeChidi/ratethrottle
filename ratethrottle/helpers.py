@@ -3,7 +3,7 @@ Helper functions for RateThrottle
 """
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from .core import RateThrottleCore
 from .exceptions import ConfigurationError
@@ -126,54 +126,57 @@ def parse_rate_limit(rate_string: str) -> tuple[int, int]:
         >>> parse_rate_limit("1000/hour")
         (1000, 3600)
     """
+    if not isinstance(rate_string, str):
+        raise ValueError("Rate string must be a string")
+
+    if "/" not in rate_string:
+        raise ValueError("Rate string must contain '/' separator")
+
+    parts = rate_string.strip().split("/")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid rate limit format: '{rate_string}'")
+
+    limit_str, period = parts
+
     try:
-        if "/" not in rate_string:
-            raise ValueError("Rate string must contain '/' separator")
-
-        limit_str, period = rate_string.split("/", 1)
         limit = int(limit_str.strip())
+    except ValueError:
+        raise ValueError(f"Invalid rate limit format: '{rate_string}")
 
-        if limit <= 0:
-            raise ValueError("Limit must be positive")
+    if limit <= 0:
+        raise ValueError(f"Limit must be positive, got {limit}")
 
-        period = period.strip().lower()
+    period = period.strip().lower()
 
-        # Map period names to seconds
-        period_map = {
-            "second": 1,
-            "seconds": 1,
-            "sec": 1,
-            "s": 1,
-            "minute": 60,
-            "minutes": 60,
-            "min": 60,
-            "m": 60,
-            "hour": 3600,
-            "hours": 3600,
-            "hr": 3600,
-            "h": 3600,
-            "day": 86400,
-            "days": 86400,
-            "d": 86400,
-        }
+    # Map period names to seconds
+    period_map = {
+        "second": 1,
+        "seconds": 1,
+        "sec": 1,
+        "s": 1,
+        "minute": 60,
+        "minutes": 60,
+        "min": 60,
+        "m": 60,
+        "hour": 3600,
+        "hours": 3600,
+        "hr": 3600,
+        "h": 3600,
+        "day": 86400,
+        "days": 86400,
+        "d": 86400,
+    }
 
-        if period not in period_map:
-            raise ValueError(
-                f"Unknown time period: {period}. "
-                f"Valid options: {', '.join(sorted(set(period_map.keys())))}"
-            )
+    if period not in period_map:
+        raise ValueError(f"Unknown time period: {period}")
 
-        window = period_map[period]
-        return limit, window
-
-    except (ValueError, AttributeError) as e:
-        raise ValueError(
-            f"Invalid rate limit format: {rate_string}. "
-            f"Expected format: 'number/period' (e.g., '100/minute', '5/second')"
-        ) from e
+    window = period_map[period]
+    return limit, window
 
 
-def get_client_ip(request, trusted_proxies: Optional[list] = None) -> str:
+def get_client_ip(
+    request, trusted_proxies: Optional[List[str]] = None, default="0.0.0.0"  # nosec B104
+) -> str:
     """
     Extract client IP address from request, considering proxy headers
 
@@ -182,7 +185,7 @@ def get_client_ip(request, trusted_proxies: Optional[list] = None) -> str:
         trusted_proxies: List of trusted proxy IP addresses
 
     Returns:
-        str: Client IP address
+        str: Client IP address or default if not found
 
     Examples:
         >>> # Flask
@@ -233,11 +236,11 @@ def get_client_ip(request, trusted_proxies: Optional[list] = None) -> str:
         return x_real_ip.strip()
 
     # Fallback to remote address
-    if hasattr(request, "remote_addr"):
+    if hasattr(request, "remote_addr") and request.remote_addr:
         return request.remote_addr
     elif hasattr(request, "client") and request.client:
         return request.client.host
-    elif hasattr(request, "META"):
-        return request.META.get("REMOTE_ADDR", "0.0.0.0")
+    elif hasattr(request, "META") and request.META.get("REMOTE_ADDR"):
+        return request.META.get("REMOTE_ADDR")
 
-    return "0.0.0.0"
+    return default
