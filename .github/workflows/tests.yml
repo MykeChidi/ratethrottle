@@ -29,13 +29,17 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements_dev.txt
 
-    - name: Lint with flake8
+    - name: Format with black
       run: |
-        flake8 ratethrottle --max-line-length=100
+        black ratethrottle 
 
     - name: Check formatting with black
       run: |
-        black --check ratethrottle tests 
+        black --check ratethrottle 
+
+    - name: Lint with flake8
+      run: |
+        flake8 ratethrottle --max-line-length=100
 
     - name: Check import sorting with isort
       run: |
