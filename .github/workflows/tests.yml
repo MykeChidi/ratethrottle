@@ -41,6 +41,10 @@ jobs:
       run: |
         flake8 ratethrottle --max-line-length=100 --extend-ignore=F401
 
+    - name: Sort imports with isort
+      run: |
+        isort ratethrottle --profile black
+
     - name: Check import sorting with isort
       run: |
         isort --check-only ratethrottle --profile black
