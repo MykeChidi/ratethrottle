@@ -505,7 +505,7 @@ class TestWSGIRateLimitMiddleware:
 
 
 class AsyncMock(Mock):
-    """Async mock for Python < 3.9 compatibility"""
+    """Async mock for Python < 3.10 compatibility"""
 
     async def __call__(self, *args, **kwargs):
         return super().__call__(*args, **kwargs)
