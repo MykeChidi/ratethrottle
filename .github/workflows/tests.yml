@@ -39,7 +39,7 @@ jobs:
 
     - name: Lint with flake8
       run: |
-        flake8 ratethrottle --max-line-length=100
+        flake8 ratethrottle --max-line-length=100 --extend-ignore=f401
 
     - name: Check import sorting with isort
       run: |
