@@ -8,6 +8,13 @@ enterprise features including DDoS protection, analytics, and multi-framework su
 import logging
 from typing import Optional
 
+from .core import RateThrottleCore, RateThrottleRule
+from .storage_backend import StorageBackend, InMemoryStorage
+from .config import ConfigManager
+from .ddos import DDoSProtection
+from .analytics import RateThrottleAnalytics
+from .helpers import create_limiter
+
 __version__ = "1.0.0"
 __author__ = "MykeChidi"
 __license__ = "MIT"
@@ -34,43 +41,14 @@ __all__ = [
     "RateThrottleAnalytics",
     # Helpers
     "create_limiter",
-    # Exceptions
-    "RateThrottleException",
-    "ConfigurationError",
-    "StorageError",
 ]
-
-# Configure default logging
-logging.getLogger("ratethrottle").addHandler(logging.NullHandler())
 
 
 # Lazy imports to avoid import errors when optional dependencies are missing
 def __getattr__(name: str):
     """Lazy import for optional components"""
 
-    # Core imports (always available)
-    if name in [
-        "RateThrottleCore",
-        "RateThrottleRule",
-        "RateThrottleStatus",
-        "RateThrottleViolation",
-    ]:
-        from .core import (  # noqa
-            RateThrottleCore,
-            RateThrottleRule,
-            RateThrottleStatus,
-            RateThrottleViolation,
-        )
-
-        return locals()[name]
-
-    # Storage imports
-    elif name in ["StorageBackend", "InMemoryStorage"]:
-        from .storage_backend import InMemoryStorage, StorageBackend  # noqa
-
-        return locals()[name]
-
-    elif name == "RedisStorage":
+    if name == "RedisStorage":
         try:
             from .storage_backend import RedisStorage
 
@@ -119,33 +97,6 @@ def __getattr__(name: str):
         from .middleware import StarletteRateLimitMiddleware, WSGIRateLimitMiddleware  # noqa
 
         return locals()[name]
-
-    # Config and protection
-    elif name in ["ConfigManager", "DDoSProtection", "RateThrottleAnalytics"]:
-        if name == "ConfigManager":
-            from .config import ConfigManager
-
-            return ConfigManager
-        elif name == "DDoSProtection":
-            from .ddos import DDoSProtection
-
-            return DDoSProtection
-        else:
-            from .analytics import RateThrottleAnalytics
-
-            return RateThrottleAnalytics
-
-    # Exceptions
-    elif name in ["RateThrottleException", "ConfigurationError", "StorageError"]:
-        from .exceptions import ConfigurationError, RateThrottleException, StorageError  # noqa
-
-        return locals()[name]
-
-    # Helper function
-    elif name == "create_limiter":
-        from .helpers import create_limiter
-
-        return create_limiter
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
