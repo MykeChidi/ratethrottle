@@ -3,6 +3,9 @@ Pytest configuration and fixtures
 """
 
 import sys
+import pytest
+import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -46,6 +49,41 @@ def sample_violation():
         metadata={},
     )
 
+
+@pytest.fixture
+def temp_config():
+    """
+    Create temporary config file for testing
+    """
+    config_data = {
+        'storage': {'type': 'memory'},
+        'rules': [
+            {'name': 'test_rule', 'limit': 10, 'window': 60}
+        ]
+    }
+    
+    # Create temp file and write config
+    with tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.yaml',
+        delete=False
+    ) as f:
+        import yaml
+        yaml.dump(config_data, f)
+        temp_path = f.name
+    
+    # File is now closed, safe to use
+    yield temp_path
+    
+    # Cleanup with retry for error compatibility
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            Path(temp_path).unlink(missing_ok=True)
+            break
+        except PermissionError:
+            if attempt < max_retries - 1:
+                time.sleep(0.1)  # Brief delay before retry
 
 # Markers for different test categories
 def pytest_configure(config):

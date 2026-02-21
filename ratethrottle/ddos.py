@@ -1,7 +1,7 @@
 """
 RateThrottle - DDoS Protection Layer
 
-Production-grade DDoS detection and mitigation with advanced traffic
+DDoS detection and mitigation with advanced traffic
 analysis and false positive prevention.
 """
 

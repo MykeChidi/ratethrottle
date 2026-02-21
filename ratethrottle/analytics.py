@@ -1,7 +1,7 @@
 """
 RateThrottle - Analytics and Reporting
 
-Production-grade analytics for rate limiting with comprehensive
+Analytics for rate limiting with comprehensive
 reporting, data sanitization, and export capabilities.
 """
 

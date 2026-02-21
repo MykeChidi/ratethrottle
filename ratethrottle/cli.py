@@ -1,7 +1,7 @@
 """
 RateThrottle - Command Line Interface
 
-Production-grade CLI for rate limiting management and monitoring with
+CLI for rate limiting management and monitoring with
 comprehensive error handling and user-friendly output.
 """
 

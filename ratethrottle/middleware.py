@@ -1,7 +1,7 @@
 """
 RateThrottle - Web Framework Integrations
 
-Production-grade middleware and decorators for popular Python web frameworks
+Middleware and decorators for popular Python web frameworks
 with comprehensive error handling and monitoring.
 """
 

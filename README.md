@@ -1,4 +1,4 @@
-# RateThrottle
+# `RateThrottle`
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -60,7 +60,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📮 Support
 
-- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/ratethrottle/issues)
+- 🐛 Issues: [GitHub Issues](https://github.com/MykeChidi/ratethrottle/issues)
 - 📖 Documentation: [Full Documentation](README)
 
 ---

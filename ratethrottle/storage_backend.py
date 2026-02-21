@@ -1,7 +1,7 @@
 """
 RateThrottle - Storage Backend Implementations
 
-Production-grade storage backends with comprehensive error handling,
+Storage backends with comprehensive error handling,
 connection management, and monitoring capabilities.
 """
 

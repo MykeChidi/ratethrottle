@@ -1,7 +1,7 @@
 """
 RateThrottle - Core Rate Limiting Engine
 
-Production-grade rate limiting with comprehensive error handling,
+Advanced rate limiting with comprehensive error handling,
 validation, and monitoring capabilities.
 """
 
@@ -52,7 +52,7 @@ class RateThrottleRule:
         ...     name='api_limit',
         ...     limit=100,
         ...     window=60,
-        ...     strategy='sliding_window'
+        ...     strategy='token_bucket'
         ... )
     """
 
@@ -61,7 +61,7 @@ class RateThrottleRule:
     window: int
     scope: str = "ip"
     block_duration: int = 300
-    strategy: str = "sliding_window"
+    strategy: str = "token_bucket"
     burst: Optional[int] = None
 
     def __post_init__(self):

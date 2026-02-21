@@ -1,7 +1,7 @@
 """
 RateThrottle - Configuration Management
 
-Production-grade configuration management with validation,
+Configuration management with validation,
 defaults, and flexible loading options.
 """
 

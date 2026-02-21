@@ -1,7 +1,7 @@
 """
 RateThrottle - Rate Limiting Strategies
 
-Production-grade implementations of various rate limiting algorithms
+Implementations of various rate limiting algorithms
 with comprehensive error handling and edge case management.
 """
 

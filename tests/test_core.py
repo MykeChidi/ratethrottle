@@ -30,7 +30,7 @@ class TestRateThrottleRule:
         assert rule.limit == 100
         assert rule.window == 60
         assert rule.scope == "ip"
-        assert rule.strategy == "sliding_window"
+        assert rule.strategy == "token_bucket"
         assert rule.burst == 100  # Default burst equals limit
 
     def test_create_rule_with_burst(self):
