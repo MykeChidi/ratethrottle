@@ -8,16 +8,14 @@ build:
   tools:
     python: "3.12"
 
+# Python requirements for building docs
+python:
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: .
+
 # Build documentation in the docs/ directory with Sphinx
 sphinx:
   configuration: docs/conf.py
   fail_on_warning: false
-
-# Python requirements for building docs
-python:
-  install:
-  requirements:
-    - docs/requirements.txt
-    - method: pip
-      path: .
-      
