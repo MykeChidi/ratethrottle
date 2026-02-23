@@ -2,15 +2,11 @@ name: Publish to PyPI
 
 on:
   push:
-    tags: ['v*.*.*']
+    tags: 
+      - 'v*.*.*'
 
   release:
     types: [published]
-
-  workflow_run:
-    workflows: ["Tests"]
-    types: [completed]
-    branches: [main]
 
   workflow_dispatch:
     inputs:
@@ -18,7 +14,7 @@ on:
         description: 'Deployment environment'
         required: true
         default: 'pypi'
-        type: 'string'
+        type: string
 
 jobs:  
   build:
@@ -56,6 +52,7 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     if: |
+      github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') ||
       github.event_name == 'release' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'pypi')
     

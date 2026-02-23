@@ -28,7 +28,7 @@ classifiers = [
 keywords = ["rate-limiting", "rate-limit", "throttlling", "api", "ddos", "security", "api-gateway"]
 dependencies = [
     "pyyaml>=6.0",
-]
+] 
 
 [project.optional-dependencies]
 redis = ["redis>=7.0.0"]
