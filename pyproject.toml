@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratethrottle"
-version = "1.0.0"
+version = "1.0.1"
 description = "Advanced rate limiting and DDoS protection for Python web applications"
 readme = "README.md"
 

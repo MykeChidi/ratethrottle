@@ -15,7 +15,7 @@ from .ddos import DDoSProtection
 from .helpers import create_limiter
 from .storage_backend import InMemoryStorage, StorageBackend
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [
