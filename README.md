@@ -10,10 +10,10 @@ RateThrottle is a comprehensive rate limiting library that provides enterprise-l
 ## ✨ Features
 
 - 🚀 **Multiple Rate Limiting Strategies**
+  - Sliding Window Log (default)
   - Token Bucket
   - Leaky Bucket
   - Fixed Window
-  - Sliding Window Log
   
 - 🛡️ **Advanced DDoS Protection**
   - Traffic pattern analysis
@@ -229,12 +229,12 @@ rules:
   - name: api_default
     limit: 1000
     window: 3600
-    strategy: token_window
+    strategy: token_bucket
     
   - name: auth_strict
     limit: 5
     window: 60
-    strategy: sliding_bucket
+    strategy: sliding_window
     block_duration: 900
 
 # DDoS Protection

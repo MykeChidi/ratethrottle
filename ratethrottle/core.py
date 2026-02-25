@@ -52,7 +52,7 @@ class RateThrottleRule:
         ...     name='api_limit',
         ...     limit=100,
         ...     window=60,
-        ...     strategy='token_bucket'
+        ...     strategy='sliding_window'
         ... )
     """
 
@@ -61,7 +61,7 @@ class RateThrottleRule:
     window: int
     scope: str = "ip"
     block_duration: int = 300
-    strategy: str = "token_bucket"
+    strategy: str = "sliding_window"
     burst: Optional[int] = None
 
     def __post_init__(self):
