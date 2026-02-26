@@ -60,7 +60,7 @@ Add to your Django ``settings.py``:
     RATELIMIT_STORAGE = 'redis://localhost:6379/0'
     RATELIMIT_DEFAULT_LIMIT = 100
     RATELIMIT_DEFAULT_WINDOW = 60
-    RATELIMIT_STRATEGY = 'sliding_bucket'
+    RATELIMIT_STRATEGY = 'sliding_window'
 
 Complete Example
 ----------------

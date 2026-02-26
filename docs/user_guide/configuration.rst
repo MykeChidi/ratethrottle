@@ -224,28 +224,31 @@ Best Practices
    - Supports environment-specific configs
 
 2. **Separate Configs by Environment**
-   .. code-block:: text
 
-       config/
-       ├── development.yaml
-       ├── staging.yaml
-       └── production.yaml
+.. code-block:: text
+
+    config/
+    ├── development.yaml
+    ├── staging.yaml
+    └── production.yaml
 
 3. **Use Environment Variables for Secrets**
-   .. code-block:: yaml
 
-       storage:
-         type: redis
-         url: ${REDIS_URL}  # From environment
+.. code-block:: yaml
+
+    storage:
+        type: redis
+        url: ${REDIS_URL}  # From environment
 
 4. **Document Your Rules**
-   .. code-block:: yaml
 
-       rules:
-         # Public API: Conservative limit for unauthenticated users
-         - name: api_public
-           limit: 100
-           window: 60
+.. code-block:: yaml
+
+    rules:
+        # Public API: Conservative limit for unauthenticated users
+        - name: api_public
+        limit: 100
+        window: 60
 
 5. **Version Your Config Files**
    - Track changes in git
@@ -331,6 +334,11 @@ Loading This Configuration:
 
     config = ConfigManager('production.yaml')
     limiter = create_limiter()
+
+    rules = config.get_rules()
+    
+    for rule in rules:
+        limiter.add_rule(rule)
 
 Next Steps
 ----------

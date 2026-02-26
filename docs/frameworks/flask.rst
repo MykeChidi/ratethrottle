@@ -173,47 +173,6 @@ Rate limit headers are automatically added:
     X-RateLimit-Remaining: 95
     X-RateLimit-Reset: 1678901234
 
-Advanced Usage
---------------
-
-Conditional Rate Limiting
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    def should_rate_limit():
-        # Don't rate limit admins
-        if current_user.is_authenticated and current_user.is_admin:
-            return False
-        return True
-
-    @app.route('/api/data')
-    @limiter.limit("100/minute", condition=should_rate_limit)
-    def get_data():
-        return {'data': 'value'}
-
-Exempting Routes
-~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    @app.route('/api/health')
-    @limiter.exempt
-    def health_check():
-        return {'status': 'ok'}
-
-Per-User Limits
-~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from flask_login import current_user
-
-    @app.route('/api/user/data')
-    @limiter.limit("1000/hour", key_func=lambda: current_user.id)
-    def user_data():
-        return {'data': 'user-specific'}
-
 Complete Example
 ----------------
 
@@ -275,30 +234,6 @@ Complete Example
     if __name__ == '__main__':
         app.run(debug=True)
 
-Testing
--------
-
-Testing with Flask Test Client
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    import unittest
-    from your_app import app
-
-    class TestRateLimiting(unittest.TestCase):
-        def setUp(self):
-            self.client = app.test_client()
-
-        def test_rate_limit(self):
-            # Make requests up to limit
-            for i in range(100):
-                response = self.client.get('/api/data')
-                self.assertEqual(response.status_code, 200)
-
-            # Next request should be rate limited
-            response = self.client.get('/api/data')
-            self.assertEqual(response.status_code, 429)
 
 Best Practices
 --------------

@@ -1,7 +1,7 @@
 FastAPI Integration
 ===================
 
-RateThrottle integrates seamlessly with FastAPI using dependency injection.
+RateThrottle integrates with FastAPI using dependency injection.
 
 Installation
 ------------
@@ -15,45 +15,68 @@ Quick Start
 
 .. code-block:: python
 
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Depends, Request
     from ratethrottle import FastAPIRateLimiter
 
     app = FastAPI()
     limiter = FastAPIRateLimiter()
 
+    # Create rate limit dependency
+    rate_limit = limiter.limit(100, 60)  # 100 requests per 60 seconds
+
     @app.get("/api/data")
-    @limiter.limit("100/minute")
-    async def get_data():
+    async def get_data(request: Request, _=Depends(rate_limit)):
         return {"data": "value"}
 
 Basic Usage
 -----------
 
-Decorator-based Limiting
-~~~~~~~~~~~~~~~~~~~~~~~~
+Dependency Injection Pattern
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+FastAPI uses dependency injection, NOT decorators:
 
 .. code-block:: python
 
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Depends, Request
     from ratethrottle import FastAPIRateLimiter
 
     app = FastAPI()
     limiter = FastAPIRateLimiter()
 
+    # Define rate limits
+    public_limit = limiter.limit(100, 60)      # 100/minute
+    search_limit = limiter.limit(50, 60)       # 50/minute
+    expensive_limit = limiter.limit(10, 60)    # 10/minute
+
     @app.get("/api/public")
-    @limiter.limit("100/minute")
-    async def public_endpoint():
+    async def public_endpoint(request: Request, _=Depends(public_limit)):
         return {"message": "Public data"}
 
     @app.get("/api/search")
-    @limiter.limit("50/minute")
-    async def search(q: str):
+    async def search(q: str, request: Request, _=Depends(search_limit)):
         return {"results": [], "query": q}
 
     @app.post("/api/expensive")
-    @limiter.limit("10/minute")
-    async def expensive_operation():
+    async def expensive_operation(request: Request, _=Depends(expensive_limit)):
         return {"result": "done"}
+
+Alternative: Using dependencies Parameter
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    from fastapi import FastAPI, Depends, Request
+    from ratethrottle import FastAPIRateLimiter
+
+    app = FastAPI()
+    limiter = FastAPIRateLimiter()
+
+    rate_limit = limiter.limit(100, 60)
+
+    @app.get("/api/data", dependencies=[Depends(rate_limit)])
+    async def get_data(request: Request):
+        return {"data": "value"}
 
 Configuration
 -------------
@@ -79,50 +102,64 @@ With Redis Storage
 Custom Key Functions
 --------------------
 
-By IP Address
-~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from fastapi import Request
-
-    async def get_ip(request: Request):
-        return request.client.host
-
-    limiter = FastAPIRateLimiter(key_func=get_ip)
-
-By User
-~~~~~~~
+By IP Address (Default)
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: python
 
     from fastapi import Request, Depends
-    from your_auth import get_current_user
+    from ratethrottle import FastAPIRateLimiter
 
-    async def get_user_id(
-        request: Request,
-        user = Depends(get_current_user)
-    ):
-        if user:
-            return f"user:{user.id}"
+    app = FastAPI()
+    limiter = FastAPIRateLimiter()
+
+    # Default behavior - limits by IP
+    rate_limit = limiter.limit(100, 60)
+
+    @app.get("/api/data")
+    async def get_data(request: Request, _=Depends(rate_limit)):
+        return {"data": "value"}
+
+By User ID
+~~~~~~~~~~
+
+.. code-block:: python
+
+    from fastapi import Request, Depends, Header
+    from ratethrottle import FastAPIRateLimiter
+
+    app = FastAPI()
+
+    def get_user_id(request: Request, user_id: str = Header(None)):
+        if user_id:
+            return f"user:{user_id}"
         return f"ip:{request.client.host}"
 
     limiter = FastAPIRateLimiter(key_func=get_user_id)
+
+    rate_limit = limiter.limit(1000, 60)
+
+    @app.get("/api/data")
+    async def get_data(request: Request, _=Depends(rate_limit)):
+        return {"data": "value"}
 
 By API Key
 ~~~~~~~~~~
 
 .. code-block:: python
 
-    from fastapi import Header, Request
+    from fastapi import Request, Depends, Header
 
-    async def get_api_key(
-        request: Request,
-        x_api_key: str = Header(None)
-    ):
+    def get_api_key_identifier(request: Request, x_api_key: str = Header(None)):
         return x_api_key or request.client.host
 
-    limiter = FastAPIRateLimiter(key_func=get_api_key)
+    limiter = FastAPIRateLimiter(key_func=get_api_key_identifier)
+
+    rate_limit = limiter.limit(5000, 60)
+
+    @app.get("/api/data")
+    async def get_data(request: Request, _=Depends(rate_limit)):
+        return {"data": "value"}
 
 Error Handling
 --------------
@@ -149,22 +186,6 @@ Custom Exception Handler
             headers={"Retry-After": str(exc.retry_after)}
         )
 
-Response Headers
-~~~~~~~~~~~~~~~~
-
-.. code-block:: python
-
-    from fastapi import Response
-
-    @app.get("/api/data")
-    @limiter.limit("100/minute")
-    async def get_data(response: Response):
-        # Headers automatically added:
-        # X-RateLimit-Limit: 100
-        # X-RateLimit-Remaining: 95
-        # X-RateLimit-Reset: 1678901234
-        return {"data": "value"}
-
 Complete Example
 ----------------
 
@@ -184,10 +205,7 @@ Complete Example
     )
 
     # Custom key function
-    async def get_identifier(
-        request: Request,
-        x_api_key: str = Header(None)
-    ):
+    def get_identifier(request: Request, x_api_key: str = Header(None)):
         if x_api_key:
             return f"key:{x_api_key}"
         return f"ip:{request.client.host}"
@@ -197,41 +215,53 @@ Complete Example
         key_func=get_identifier
     )
 
-    # Exception handler
-    @app.exception_handler(RateLimitExceeded)
-    async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    # Define rate limits
+    public_limit = limiter.limit(100, 60)        # 100/minute
+    search_limit = limiter.limit(50, 60)         # 50/minute  
+    write_limit = limiter.limit(10, 60)          # 10/minute
+    upload_limit = limiter.limit(5, 300)         # 5 per 5 minutes
+
+    # Exception handler (optional - FastAPI already handles HTTPException)
+    @app.exception_handler(429)
+    async def rate_limit_handler(request: Request, exc: HTTPException):
         return JSONResponse(
             status_code=429,
             content={
                 "error": "Too many requests",
-                "retry_after": exc.retry_after
+                "detail": exc.detail
             },
-            headers={"Retry-After": str(exc.retry_after)}
+            headers=exc.headers or {}
         )
 
     # Public endpoint - strict limit
     @app.get("/api/public")
-    @limiter.limit("100/minute")
-    async def public_data():
+    async def public_data(request: Request, _=Depends(public_limit)):
         return {"data": "public"}
 
     # Search endpoint
     @app.get("/api/search")
-    @limiter.limit("50/minute")
-    async def search(q: str):
+    async def search(q: str, request: Request, _=Depends(search_limit)):
         return {"results": [], "query": q}
 
-    # Expensive operation
+    # Write operation - very strict
     @app.post("/api/process")
-    @limiter.limit("10/minute")
-    @limiter.limit("50/hour")
-    async def process_data(data: dict):
+    async def process_data(
+        data: dict,
+        request: Request,
+        _write=Depends(write_limit)
+    ):
         # Process data
         return {"status": "processing"}
 
+    # File upload - extremely strict
+    @app.post("/api/upload")
+    async def upload_file(request: Request, _=Depends(upload_limit)):
+        # Handle upload
+        return {"status": "uploaded"}
+
     # Health check - no rate limit
     @app.get("/health")
-    async def health():
+    async def health(request: Request):
         return {"status": "ok"}
 
     if __name__ == "__main__":
