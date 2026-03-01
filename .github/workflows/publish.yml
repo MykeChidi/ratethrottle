@@ -77,7 +77,6 @@ jobs:
     name: Sign and Create GitHub Release
     needs: [publish-to-pypi]
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'pypi'
     
     permissions:
       contents: write

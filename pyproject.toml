@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ratethrottle"
-version = "1.0.1"
+version = "1.2.0"
 description = "Advanced rate limiting and DDoS protection for Python web applications"
 readme = "README.md"
 
@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: Security",
 ]
 
-keywords = ["rate-limiting", "rate-limit", "throttlling", "api", "ddos", "security", "api-gateway"]
+keywords = ["rate-limiting", "backend", "throttlling", "api", "ddos", "security"]
 dependencies = [
     "pyyaml>=6.0",
 ] 
@@ -36,12 +36,37 @@ redis = ["redis>=7.0.0"]
 flask = ["flask>=3.0.0"]
 fastapi = ["fastapi>=0.129.0", "starlette>=0.52.0"]
 django = ["django>=5.2.0"]
+websocket = ["python-socketio>=5.7.0", "channels>=4.0.0"]
+grpc = ["grpcio>=1.50.0"]
+graphql = ["graphql-core>=3.2.0"]
+
+protocols = [
+    "websockets>=10.0",
+    "python-socketio>=5.7.0",
+    "channels>=4.0.0",
+    "grpcio-core>=1.50.0",
+    "graphql>=3.2.0"
+]
+
 frameworks = [
     "redis>=7.0.0",
     "flask>=3.0.0",
     "fastapi>=0.100.0",
     "starlette>=0.52.0",
     "django>=5.2.0"
+]
+
+all = [
+    "redis>=7.0.0",
+    "flask>=3.0.0",
+    "fastapi>=0.100.0",
+    "starlette>=0.52.0",
+    "django>=5.2.0",
+    "websockets>=10.0",
+    "python-socketio>=5.7.0",
+    "channels>=4.0.0",
+    "grpcio-core>=1.50.0",
+    "graphql>=3.2.0"
 ]
 
 dev = [
@@ -60,7 +85,7 @@ dev = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/MykeChidi/ratethrottle"
+Documentation = "https://ratethrottle.readthedocs.io"
 Repository = "https://github.com/MykeChidi/ratethrottle"
 "Bug Tracker" = "https://github.com/MykeChidi/ratethrottle/issues"
 

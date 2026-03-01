@@ -3,14 +3,14 @@
 RateThrottle Documentation
 ==========================
 
-**RateThrottle** is an advanced rate limiting and DDoS protection library for Python web applications. It provides enterprise-level features including multiple rate limiting strategies, DDoS protection, analytics, and seamless integration with popular web frameworks.
+**RateThrottle** is an advanced rate limiting and DDoS protection library for Python web applications. It provides enterprise-level features including multiple rate limiting strategies, multiple protocol support, DDoS protection, analytics, and seamless integration with popular web frameworks.
 
 .. image:: https://img.shields.io/pypi/v/ratethrottle.svg
    :target: https://pypi.org/project/ratethrottle/
    :alt: PyPI version
 
 .. image:: https://img.shields.io/github/license/MykeChidi/ratethrottle.svg
-   :target: https://github.com/MykeChidi/ratethrottle/blob/main/LICENSE
+   :target: https://opensource.org/licenses/MIT
    :alt: License
 
 Key Features
@@ -19,6 +19,7 @@ Key Features
 * **Multiple Rate Limiting Strategies**: Token bucket, leaky bucket, fixed window, and sliding window algorithms
 * **DDoS Protection**: Advanced traffic analysis and automatic attack mitigation
 * **Multi-Framework Support**: Flask, FastAPI, Django, Starlette, and WSGI applications
+* **Multi-Protocol Support**: REST, GraphQL, gRPC, Websocket
 * **Flexible Storage**: In-memory and Redis backends for distributed systems
 * **Analytics & Monitoring**: Comprehensive metrics, violation tracking, and reporting
 * **Production Ready**: Thread-safe, type-annotated, and thoroughly tested
@@ -73,7 +74,7 @@ Getting Started
 
 .. toctree::
    :maxdepth: 2
-   :caption: Getting Started
+   :caption: Get Started
 
    installation
    quickstart
@@ -99,6 +100,14 @@ Getting Started
 
 .. toctree::
    :maxdepth: 2
+   :caption: Protocols Reference
+
+   protocols/grpc
+   protocols/graphql
+   protocols/websocket
+
+.. toctree::
+   :maxdepth: 2
    :caption: Advanced Features
 
    advanced/ddos_protection
@@ -110,7 +119,6 @@ Getting Started
 Support & Community
 -------------------
 
-* **Documentation**: https://ratethrottle.readthedocs.io
 * **Source Code**: https://github.com/MykeChidi/ratethrottle
 * **Issue Tracker**: https://github.com/MykeChidi/ratethrottle/issues
 * **PyPI**: https://pypi.org/project/ratethrottle/
@@ -121,7 +129,7 @@ License
 RateThrottle is released under the MIT License.
 
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`search`

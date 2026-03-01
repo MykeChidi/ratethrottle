@@ -34,7 +34,7 @@ Basic Usage
 Dependency Injection Pattern
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-FastAPI uses dependency injection, NOT decorators:
+FastAPI uses dependency injection to manage rate limits.
 
 .. code-block:: python
 

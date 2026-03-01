@@ -60,15 +60,6 @@ autodoc_default_options = {
     'exclude-members': '__weakref__'
 }
 
-
-# -- Options for intersphinx -------------------------------------------------
-intersphinx_mapping = {
-    'python': ('https://docs.python.org/3', None),
-    'flask': ('https://flask.palletsprojects.com/en/latest/', None),
-    'django': ('https://docs.djangoproject.com/en/stable/', None),
-    'fastapi': ('https://fastapi.tiangolo.com/', None),
-}
-
 # -- Options for todo extension ----------------------------------------------
 todo_include_todos = True
 

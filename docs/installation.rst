@@ -64,6 +64,55 @@ To install support for all frameworks and Redis:
 
     pip install ratethrottle[frameworks]
 
+GRPC Integration
+~~~~~~~~~~~~~~~~
+
+For gRPC protocol support
+
+.. code-block:: bash
+
+    pip install ratethrottle[grpc]
+
+GraphQL Integration
+~~~~~~~~~~~~~~~~~~~
+
+For GraphQL protocol support
+
+.. code-block:: bash
+
+    pip install ratethrottle[graphql]
+
+Websocket Integration
+~~~~~~~~~~~~~~~~~~~~~
+
+For websocket protocol support
+
+.. code-block:: bash
+
+    # WebSocket support included by default
+    pip install ratethrottle
+    
+    # For specific socket-io or channels support:
+    pip install ratethrottle[websocket]
+
+All Protocols
+~~~~~~~~~~~~~
+
+Install with support for all protocols
+
+.. code-block:: bash
+
+    pip install ratethrottle[protocols]
+
+All dependencies
+~~~~~~~~~~~~~~~~
+
+Install with all dependencies
+
+.. code-block:: bash
+
+    pip install ratethrottle[all]
+
 Development Installation
 ------------------------
 
@@ -95,7 +144,7 @@ For development with all dependencies:
 
 .. code-block:: bash
 
-    pip install -e ".[dev,frameworks]"
+    pip install -e ".[dev,all]"
 
 Verifying Installation
 ----------------------

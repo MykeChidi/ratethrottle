@@ -2,7 +2,7 @@
 RateThottle Module entry point.
 
 Allows you to run the package as a module.
-    python -m ratethrottle
+>>> python -m ratethrottle
 """
 
 import sys

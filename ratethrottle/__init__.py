@@ -1,8 +1,8 @@
 """
 RateThrottle - Production-grade rate limiting and DDoS protection
 
-A comprehensive rate limiting library for Python web applications with
-enterprise features including DDoS protection, analytics, and multi-framework support.
+A comprehensive rate limiting library for Python web applications with enterprise features
+including DDoS protection, analytics, multi-framework support and multi protocol support.
 """
 
 import logging
@@ -12,10 +12,38 @@ from .analytics import RateThrottleAnalytics
 from .config import ConfigManager
 from .core import RateThrottleCore, RateThrottleRule
 from .ddos import DDoSProtection
-from .helpers import create_limiter
-from .storage_backend import InMemoryStorage, StorageBackend
+from .graphQL import (
+    AriadneRateLimiter,
+    ComplexityAnalyzer,
+    DepthAnalyzer,
+    GraphQLLimits,
+    GraphQLRateLimiter,
+)
+from .gRPC import (
+    GRPCLimits,
+    GRPCRateLimitInterceptor,
+    ServiceRateLimiter,
+    grpc_ratelimit,
+)
+from .helpers import create_limiter, get_client_ip
+from .middleware import (
+    DjangoRateLimitMiddleware,
+    FastAPIRateLimiter,
+    FlaskRateLimiter,
+    StarletteRateLimitMiddleware,
+    WSGIRateLimitMiddleware,
+    django_ratelimit,
+)
+from .storage_backend import InMemoryStorage, RedisStorage, StorageBackend
+from .websocket import (
+    ChannelsRateLimiter,
+    FastAPIWebSocketLimiter,
+    SocketIOLimiter,
+    WebSocketLimits,
+    WebSocketRateLimiter,
+)
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 __author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [
@@ -41,6 +69,24 @@ __all__ = [
     "RateThrottleAnalytics",
     # Helpers
     "create_limiter",
+    "get_client_ip",
+    # Websocket
+    "WebSocketLimits",
+    "WebSocketRateLimiter",
+    "FastAPIWebSocketLimiter",
+    "SocketIOLimiter",
+    "ChannelsRateLimiter",
+    # GRPC
+    "GRPCLimits",
+    "GRPCRateLimitInterceptor",
+    "grpc_ratelimit",
+    "ServiceRateLimiter",
+    # GraphQL
+    "GraphQLLimits",
+    "GraphQLRateLimiter",
+    "ComplexityAnalyzer",
+    "DepthAnalyzer",
+    "AriadneRateLimiter",
 ]
 
 
@@ -93,10 +139,80 @@ def __getattr__(name: str):
                 "Install it with: pip install ratethrottle[django]"
             ) from e
 
-    elif name in ["StarletteRateLimitMiddleware", "WSGIRateLimitMiddleware"]:
-        from .middleware import StarletteRateLimitMiddleware, WSGIRateLimitMiddleware  # noqa
+    elif name == "FastAPIWebSocketLimiter":
+        try:
+            from .websocket import FastAPIWebSocketLimiter
 
-        return locals()[name]
+            return FastAPIWebSocketLimiter
+        except ImportError as e:
+            raise ImportError(
+                "FastAPIWebSocketLimiter requires 'fastapi' package. "
+                "Install it with: pip install ratethrottle[fastapi]"
+            ) from e
+
+    elif name == "SocketIOLimiter":
+        try:
+            from .websocket import SocketIOLimiter
+
+            return SocketIOLimiter
+        except ImportError as e:
+            raise ImportError(
+                "SocketIOLimiter requires 'python-socketio' package. "
+                "Install it with: pip install ratethrottle[websocket]"
+            ) from e
+
+    elif name == "ChannelsRateLimiter":
+        try:
+            from .websocket import ChannelsRateLimiter
+
+            return ChannelsRateLimiter
+        except ImportError as e:
+            raise ImportError(
+                "ChannelsRateLimiter requires 'channels' package. "
+                "Install it with: pip install ratethrottle[websocket]"
+            ) from e
+
+    # gRPC components (requires grpcio)
+    elif name in [
+        "GRPCRateLimitInterceptor",
+        "grpc_ratelimit",
+        "ServiceRateLimiter",
+    ]:
+        try:
+            from .gRPC import (  # noqa
+                GRPCRateLimitInterceptor,
+                ServiceRateLimiter,
+                grpc_ratelimit,
+            )
+
+            return locals()[name]
+        except ImportError as e:
+            raise ImportError(
+                "gRPC components require 'grpcio' package. "
+                "Install it with: pip install ratethrottle[grpc]"
+            ) from e
+
+    # GraphQL components (requires graphql-core)
+    elif name in [
+        "GraphQLRateLimiter",
+        "ComplexityAnalyzer",
+        "DepthAnalyzer",
+        "AriadneRateLimiter",
+    ]:
+        try:
+            from .graphQL import (  # noqa
+                AriadneRateLimiter,
+                ComplexityAnalyzer,
+                DepthAnalyzer,
+                GraphQLRateLimiter,
+            )
+
+            return locals()[name]
+        except ImportError as e:
+            raise ImportError(
+                "GraphQL components require 'graphql-core' package. "
+                "Install it with: pip install ratethrottle[graphql]"
+            ) from e
 
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 

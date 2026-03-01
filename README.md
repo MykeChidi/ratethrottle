@@ -5,7 +5,7 @@
 
 **Advanced rate limiting and DDoS protection for Python web applications.**
 
-RateThrottle is a comprehensive rate limiting library that provides enterprise-level features for protecting your APIs and web applications from abuse, with built-in DDoS protection, different storage backends, multiple strategies and seamless integration with popular Python web frameworks.
+RateThrottle is a comprehensive rate limiting library that provides enterprise-level features for protecting your APIs and web applications from abuse, with built-in DDoS protection, different storage backends, multiple strategies and protocols with seamless integration with popular Python web frameworks.
 
 ## ✨ Features
 
@@ -15,6 +15,12 @@ RateThrottle is a comprehensive rate limiting library that provides enterprise-l
   - Leaky Bucket
   - Fixed Window
   
+- 🚀 **Different protocol support**
+  - REST
+  - GRPC
+  - GraphQL
+  - Websocket
+
 - 🛡️ **Advanced DDoS Protection**
   - Traffic pattern analysis
   - Automatic suspicious activity detection
@@ -63,8 +69,20 @@ pip install ratethrottle[fastapi]
 # With Django support
 pip install ratethrottle[django]
 
-# Install everything
+# With all frameworks
 pip install ratethrottle[frameworks]
+
+# With grpc support
+pip install ratethrottle[grpc]
+
+# With graphQL support
+pip install ratethrottle[graphql]
+
+# With websocket support
+pip install ratethrottle[websocket]
+
+# With all protocols
+pip install ratethrottle[protocols]
 ```
 
 ### Flask Example
@@ -257,6 +275,64 @@ for rule in config.get_rules():
     limiter.add_rule(rule)
 ```
 
+### GRPC Example
+```python
+from concurrent import futures
+import grpc
+from ratethrottle import GRPCRateLimitInterceptor, GRPCLimits
+        
+ # Create interceptor
+interceptor = GRPCRateLimitInterceptor(
+     GRPCLimits(
+        requests_per_minute=100,
+        concurrent_requests=10
+            )
+)
+
+# Create server with rate limiting
+server = grpc.server(
+    futures.ThreadPoolExecutor(max_workers=10),
+    interceptors=[interceptor]
+```
+
+### GraphQL Example
+```python
+from ratethrottle import GraphQLRateLimiter, GraphQLLimits
+
+limiter = GraphQLRateLimiter(
+    GraphQLLimits(
+        queries_per_minute=100,
+        max_complexity=1000
+    )
+)
+
+# Check if query is allowed
+error = limiter.check_rate_limit(
+    document_ast=parsed_query,
+    context=request_context
+)
+    
+if error:
+    raise error # GraphQLError
+```
+
+### Websocket Example
+```python
+from ratethrottle import WebSocketRateLimiter, WebSocketLimits
+
+limiter = WebSocketRateLimiter(
+    WebSocketLimits(
+        connections_per_minute=10,
+        messages_per_minute=100
+    )
+)
+
+# Check if connection allowed
+if await limiter.check_connection("client_id"):
+    # Accept connection
+    await limiter.register_connection("client_id", websocket)
+
+```
 ### DDoS Protection
 
 ```python
@@ -349,53 +425,6 @@ ratethrottle config --validate
 ratethrottle stats --export report.json
 ```
 
-## 🔧 Advanced Usage
-
-### Custom Storage Backend
-
-```python
-from ratethrottle import StorageBackend
-
-class CustomStorage(StorageBackend):
-    """Custom storage implementation"""
-    
-    def get(self, key: str):
-        # Implement get logic
-        pass
-    
-    def set(self, key: str, value, ttl: int = None):
-        # Implement set logic
-        pass
-    
-    def increment(self, key: str, amount: int = 1, ttl: int = None):
-        # Implement increment logic
-        pass
-    
-    def delete(self, key: str):
-        # Implement delete logic
-        pass
-    
-    def exists(self, key: str) -> bool:
-        # Implement exists logic
-        pass
-
-# Use custom storage
-limiter = RateThrottleCore(storage=CustomStorage())
-```
-
-### Custom Rate Limiting Strategy
-
-```python
-from ratethrottle.strategies import RateLimitStrategy
-
-class CustomStrategy(RateLimitStrategy):
-    """Custom rate limiting strategy"""
-    
-    def is_allowed(self, identifier, rule, storage):
-        # Implement your custom logic
-        # Return (allowed: bool, status: RateThrottleStatus)
-        pass
-```
 
 ## 📊 Performance
 
@@ -416,6 +445,6 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 ## 📮 Support
 
 - 🐛 Issues: [GitHub Issues](https://github.com/MykeChidi/ratethrottle/issues)
-- 📖 Documentation: [Full Documentation](README)
+- 📖 Documentation: [Full Documentation](https://ratethrotttle/readthedocs.io)
 
 ---

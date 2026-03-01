@@ -17,3 +17,16 @@ flask>=2.0.0
 fastapi>=0.95.0
 starlette>=0.26.0
 django>=5.2.0
+
+# Protocol dependencies
+grpcio>=1.50.0
+graphql-core>=3.2.0
+websockets>=10.0
+python-socketio>=5.7.0
+channels>=4.0.0
+
+# documentation dependencies
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+sphinx-autodoc-typehints>=1.22.0
+myst-parser>=1.0.0
