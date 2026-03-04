@@ -1,7 +1,7 @@
 Rate Limiting Strategies
 ========================
 
-RateThrottle implements four proven rate limiting algorithms, each suited for different use cases.
+RateThrottle implements five proven rate limiting algorithms, each suited for different use cases.
 
 Overview
 --------
@@ -35,6 +35,10 @@ Available Strategies
    * - Fixed Window
      - Simple high-volume APIs
      - Yes (at boundaries)
+     - Low
+   * - Sliding Window Counter
+     - Accurate rate limiting
+     - Minimal
      - Low
    * - Sliding Window
      - Smooth enforcement
@@ -269,6 +273,160 @@ Implementation
         scope="user"
     )
 
+Sliding Window Counter Strategy
+--------------------------------
+
+How It Works
+~~~~~~~~~~~~
+
+A hybrid approach that combines the efficiency of Fixed Window with the accuracy of Sliding Window. Uses weighted average of current and previous window counters.
+
+.. code-block:: python
+
+    rule = RateThrottleRule(
+        name="api_balanced",
+        limit=100,
+        window=60,
+        strategy="sliding_counter"
+    )
+
+**Key Characteristics**:
+
+* Uses only 2 counters (current + previous window)
+* Calculates weighted average based on time elapsed
+* Solves Fixed Window boundary problem
+* Memory: O(1) like Fixed Window
+* Accuracy: ~95-98% of true Sliding Window
+
+**Formula**:
+
+.. code-block:: text
+
+    weighted_count = (previous_count × (1 - window_progress)) + current_count
+    
+    Where window_progress = time_elapsed_in_current_window / window_size
+
+Example Behavior
+~~~~~~~~~~~~~~~~
+
+Given: ``limit=100``, ``window=60``
+
+.. code-block:: text
+
+    Previous window (0-60s): 80 requests
+    Current window (60-120s): 40 requests
+    Current time: 90s (30 seconds into window = 50% progress)
+    
+    Weighted count = (80 × (1 - 0.5)) + 40
+                   = (80 × 0.5) + 40
+                   = 40 + 40
+                   = 80 requests
+    
+    Remaining: 100 - 80 = 20 requests allowed
+
+**Time progression example**:
+
+.. code-block:: text
+
+    Time   | Progress | Previous × Weight | Current | Weighted Total
+    -------|----------|-------------------|---------|---------------
+    60s    | 0%       | 80 × 1.0 = 80    | 0       | 80 (block new)
+    75s    | 25%      | 80 × 0.75 = 60   | 5       | 65
+    90s    | 50%      | 80 × 0.5 = 40    | 15      | 55
+    105s   | 75%      | 80 × 0.25 = 20   | 30      | 50
+    119s   | 98%      | 80 × 0.02 = 1.6  | 50      | 51.6
+
+Solves Boundary Problem
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Unlike Fixed Window, Sliding Window Counter prevents burst abuse at boundaries:
+
+.. code-block:: text
+
+    Fixed Window Problem:
+    ├─ Window 1 (0-60s): 100 requests at t=59s ✓
+    ├─ Window 2 (60-120s): 100 requests at t=61s ✓
+    └─ Total: 200 requests in 2 seconds! ✗
+    
+    Sliding Window Counter Solution:
+    ├─ Window 1 (0-60s): 100 requests at t=59s ✓
+    ├─ At t=61s (1.67% into window 2):
+    │   └─ Weighted: (100 × 0.983) + 0 = 98.3 ≈ 99
+    │   └─ Limit: 100
+    │   └─ Can only make ~1 request ✓
+    └─ Prevents burst! ✓
+
+Best For
+~~~~~~~~
+
+* **Most production APIs** - Best all-around choice
+* APIs needing better accuracy than Fixed Window
+* When memory is limited (can't store all timestamps)
+* High-traffic applications where performance matters
+* **Recommended default strategy**
+
+**Advantages over alternatives**:
+
+* More accurate than Fixed Window (no boundary bursts)
+* Much faster than Sliding Window (O(1) vs O(n))
+* Less memory than Sliding Window (2 counters vs n timestamps)
+* Industry standard (used by Cloudflare, Kong, AWS)
+
+Implementation
+~~~~~~~~~~~~~~
+
+.. code-block:: python
+
+    from ratethrottle import RateThrottleCore, RateThrottleRule
+
+    limiter = RateThrottleCore()
+
+    # Standard configuration (recommended)
+    rule = RateThrottleRule(
+        name="api_default",
+        limit=100,
+        window=60,
+        strategy="sliding_counter"
+    )
+    limiter.add_rule(rule)
+
+    # High-traffic API
+    high_traffic = RateThrottleRule(
+        name="public_api",
+        limit=10000,
+        window=60,
+        strategy="sliding_counter"
+    )
+
+    # Per-user limit
+    user_rule = RateThrottleRule(
+        name="user_api",
+        limit=1000,
+        window=3600,  # 1 hour
+        strategy="sliding_counter",
+        scope="user"
+    )
+
+When to Use vs Other Strategies
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: text
+
+    Choose Sliding Window Counter when:
+    ├─ You need accuracy better than Fixed Window
+    ├─ You can't afford Sliding Window's memory cost
+    ├─ You want industry-proven algorithm
+    └─ You want the best general-purpose strategy
+    
+    Choose Fixed Window instead when:
+    ├─ You need absolute maximum performance
+    └─ Boundary bursts are acceptable
+    
+    Choose Sliding Window instead when:
+    ├─ You need perfect accuracy (SLA/legal requirements)
+    ├─ Memory cost is not a concern
+    └─ You can tolerate slower performance
+
 Sliding Window Strategy
 -----------------------
 
@@ -370,6 +528,10 @@ Performance
      - ★★★★★
      - ★★★★★
      - ★★★☆☆
+   * - Sliding Window Counter
+     - ★★★★★
+     - ★★★★★
+     - ★★★★☆
    * - Token Bucket
      - ★★★★☆
      - ★★★★☆
@@ -398,7 +560,11 @@ Burst Handling
 
     # Fixed Window: Bursts at boundaries
     limiter.check_rate_limit("client", "fixed_window_rule")
-    # Can burst at window edges
+    # Can burst at window edges (up to 2x limit)
+
+    # Sliding Window Counter: Minimal bursts
+    limiter.check_rate_limit("client", "sliding_counter_rule")
+    # Prevents boundary bursts, allows small variance
 
     # Sliding Window: Limited bursts
     limiter.check_rate_limit("client", "sliding_window_rule")
@@ -415,11 +581,13 @@ Decision Tree
     Need burst support?
     ├─ Yes → Do you need precise control?
     │        ├─ Yes → Token Bucket
-    │        └─ No  → Fixed Window (simpler)
+    │        └─ No  → Fixed Window (simpler, faster)
     │
-    └─ No  → Need perfect smoothness?
-             ├─ Yes → Sliding Window
-             └─ No  → Leaky Bucket
+    └─ No  → Need perfect accuracy?
+             ├─ Yes → Sliding Window (most accurate)
+             └─ No  → Need good balance?
+                      ├─ Yes → Sliding Window Counter (recommended)
+                      └─ No  → Leaky Bucket (constant rate)
 
 Use Case Matrix
 ~~~~~~~~~~~~~~~
@@ -431,21 +599,27 @@ Use Case Matrix
    * - Use Case
      - Recommended Strategy
    * - Public REST API
-     - Token Bucket (allows bursts)
+     - Sliding Window Counter (best balance)
    * - Internal microservices
      - Fixed Window (fast, simple)
    * - Third-party API client
      - Leaky Bucket (respects their limits)
    * - Payment processing
-     - Sliding Window (precise)
+     - Sliding Window (perfect accuracy)
    * - Search/autocomplete
-     - Token Bucket (responsive)
+     - Token Bucket (responsive bursts)
    * - File uploads
      - Leaky Bucket (constant rate)
    * - GraphQL API
-     - Sliding Window (complex queries)
+     - Sliding Window Counter (accurate, fast)
    * - WebSocket connections
      - Token Bucket (bursty traffic)
+   * - High-volume API
+     - Sliding Window Counter (efficient, accurate)
+   * - SaaS applications
+     - Sliding Window Counter (fair, performant)
+   * - Mobile app backend
+     - Sliding Window Counter (handles bursts better)
 
 Combining Strategies
 --------------------
@@ -458,13 +632,12 @@ You can use multiple strategies for different endpoints:
 
     limiter = RateThrottleCore()
 
-    # Public endpoints: Allow bursts
+    # Public endpoints: Best balance of accuracy and performance
     public_rule = RateThrottleRule(
         name="public",
         limit=100,
         window=60,
-        strategy="token_bucket",
-        burst=150
+        strategy="sliding_counter"
     )
 
     # Authenticated: Smooth limiting
@@ -472,7 +645,7 @@ You can use multiple strategies for different endpoints:
         name="authenticated",
         limit=1000,
         window=60,
-        strategy="sliding_window"
+        strategy="sliding_counter"
     )
 
     # Expensive operations: Constant rate
@@ -490,11 +663,21 @@ You can use multiple strategies for different endpoints:
         window=3600,
         strategy="fixed_window"
     )
+    
+    # Burst-friendly endpoints: Allow traffic spikes
+    burst_rule = RateThrottleRule(
+        name="search",
+        limit=100,
+        window=60,
+        strategy="token_bucket",
+        burst=150
+    )
 
     limiter.add_rule(public_rule)
     limiter.add_rule(auth_rule)
     limiter.add_rule(expensive_rule)
     limiter.add_rule(background_rule)
+    limiter.add_rule(burst_rule)
 
 Advanced Configuration
 ----------------------
@@ -567,7 +750,15 @@ You can test different strategies to find what works best:
         print(f"  After 10s: {'Allowed' if status.allowed else 'Blocked'}")
 
     # Test all strategies
-    for strategy in ["token_bucket", "leaky_bucket", "fixed_window", "sliding_window"]:
+    strategies = [
+        "fixed_window",
+        "sliding_counter", 
+        "token_bucket",
+        "leaky_bucket",
+        "sliding_window"
+    ]
+    
+    for strategy in strategies:
         test_strategy(strategy)
 
 Next Steps
