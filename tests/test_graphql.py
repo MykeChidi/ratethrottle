@@ -2,16 +2,16 @@
 Tests for GraphQL rate limiting
 """
 
-import pytest
 from unittest.mock import Mock, patch
 
+import pytest
 
 from ratethrottle.graphQL import (
-    GraphQLLimits,
+    AriadneRateLimiter,
     ComplexityAnalyzer,
     DepthAnalyzer,
+    GraphQLLimits,
     GraphQLRateLimiter,
-    AriadneRateLimiter,
 )
 
 

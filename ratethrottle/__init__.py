@@ -43,7 +43,7 @@ from .websocket import (
     WebSocketRateLimiter,
 )
 
-__version__ = "1.2.0"
+__version__ = "1.2.2"
 __author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [

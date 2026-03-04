@@ -8,6 +8,7 @@ with comprehensive error handling and edge case management.
 from __future__ import annotations  # postponed evaluation
 
 import logging
+import math
 import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Tuple
@@ -464,3 +465,87 @@ class SlidingWindowStrategy(RateLimitStrategy):
         except Exception as e:
             logger.error(f"Sliding window strategy error: {e}")
             raise StorageError(f"Sliding window check failed: {e}") from e
+
+
+class SlidingWindowCounterStrategy(RateLimitStrategy):
+    """
+    Sliding Window Counter algorithm implementation
+
+    Maintains counters for current and previous windows.
+    Uses weighted count to approximate sliding window behavior.
+
+    Features:
+        - More accurate than fixed window
+        - Lower memory usage than sliding window log
+        - Smooth transition between windows
+
+    Limitations:
+        - Still has some edge case issues (not perfectly accurate)
+        - More complex than fixed window
+
+    Best for:
+        - When some accuracy improvement over fixed window is desired
+        - When memory constraints prevent sliding window log
+        - APIs that can tolerate minor edge case issues
+
+    Example:
+        limit=100, window=60
+        - Maintains count for current and previous windows
+        - Weighted count: current + (previous * (1 - progress in current window))
+        - More accurate than fixed window, but not perfect
+    """
+
+    def is_allowed(
+        self, identifier: str, rule: RateThrottleRule, storage: StorageBackend
+    ) -> Tuple[bool, RateThrottleStatus]:
+        """Check if request is allowed"""
+        from .core import RateThrottleStatus
+
+        now = time.time()
+        window_start = int(now / rule.window) * rule.window
+        prev_window_start = window_start - rule.window
+
+        # Keys for current and previous windows
+        current_key = f"swc:{rule.name}:{identifier}:{window_start}"
+        prev_key = f"swc:{rule.name}:{identifier}:{prev_window_start}"
+
+        # Get counts
+        current_count = storage.get(current_key) or 0
+        prev_count = storage.get(prev_key) or 0
+
+        # Calculate position in current window (0.0 to 1.0)
+        elapsed_in_window = now - window_start
+        window_progress = elapsed_in_window / rule.window
+
+        # Weighted count: previous window contribution decreases linearly
+        # Use ceiling to be conservative with floating point
+        weighted_count = math.ceil((prev_count * (1 - window_progress)) + current_count)
+
+        if weighted_count < rule.limit:
+            # Increment current window counter
+            new_count = storage.increment(current_key, 1, rule.window * 2)
+
+            # Recalculate weighted count after increment
+            new_weighted = math.ceil((prev_count * (1 - window_progress)) + new_count)
+            remaining = max(0, rule.limit - new_weighted)
+
+            return True, RateThrottleStatus(
+                allowed=True,
+                remaining=remaining,
+                limit=rule.limit,
+                reset_time=window_start + rule.window,
+                rule_name=rule.name,
+            )
+        else:
+            # Rate limit exceeded
+            retry_after = int(rule.window - elapsed_in_window) + 1
+
+            return False, RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=rule.limit,
+                reset_time=window_start + rule.window,
+                retry_after=retry_after,
+                rule_name=rule.name,
+                blocked=True,
+            )

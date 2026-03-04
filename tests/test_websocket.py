@@ -2,15 +2,17 @@
 Tests for WebSocket rate limiting
 """
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
+
 from ratethrottle.websocket import (
-    WebSocketLimits,
-    WebSocketRateLimiter,
+    ChannelsRateLimiter,
     ConnectionInfo,
     FastAPIWebSocketLimiter,
     SocketIOLimiter,
-    ChannelsRateLimiter,
+    WebSocketLimits,
+    WebSocketRateLimiter,
 )
 
 

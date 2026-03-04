@@ -39,7 +39,7 @@ class RuleConfig:
     limit: int
     window: int
     scope: str = "ip"
-    strategy: str = "sliding_window"
+    strategy: str = "sliding_counter"
     block_duration: int = 300
     burst: Optional[int] = None
     paths: Optional[List[str]] = None
@@ -70,7 +70,13 @@ class RuleConfig:
                 f"Valid options: {', '.join(valid_scopes)}"
             )
 
-        valid_strategies = {"token_bucket", "leaky_bucket", "fixed_window", "sliding_window"}
+        valid_strategies = {
+            "token_bucket",
+            "leaky_bucket",
+            "fixed_window",
+            "sliding_window",
+            "sliding_counter",
+        }
         if self.strategy not in valid_strategies:
             raise ConfigurationError(
                 f"Rule '{self.name}': invalid strategy '{self.strategy}'. "
@@ -139,7 +145,7 @@ class ConfigManager:
         },
         "global": {
             "enabled": True,
-            "default_strategy": "sliding_window",
+            "default_strategy": "sliding_counter",
             "headers_enabled": True,
             "log_violations": True,
             "log_level": "INFO",
@@ -149,7 +155,7 @@ class ConfigManager:
                 "name": "default",
                 "limit": 1000,
                 "window": 3600,
-                "strategy": "sliding_window",
+                "strategy": "sliding_counter",
                 "block_duration": 300,
             }
         ],

@@ -10,7 +10,8 @@ RateThrottle is a comprehensive rate limiting library that provides enterprise-l
 ## ✨ Features
 
 - 🚀 **Multiple Rate Limiting Strategies**
-  - Sliding Window Log (default)
+  - Sliding Window Counter (default)
+  - Sliding Window Log 
   - Token Bucket
   - Leaky Bucket
   - Fixed Window
@@ -111,15 +112,16 @@ if __name__ == '__main__':
 ### FastAPI Example
 
 ```python
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from ratethrottle import FastAPIRateLimiter
 
 app = FastAPI()
 limiter = FastAPIRateLimiter()
 
+rate_limit = limiter.limit(100, 60)
+
 @app.get("/api/data")
-@limiter.limit("100/minute")
-async def get_data():
+async def get_data(request, _=Depends(ratelimit)):
     return {"data": "value"}
 ```
 
@@ -147,7 +149,7 @@ rule = RateThrottleRule(
     name='api_limit',
     limit=100,
     window=60,
-    strategy='sliding_window'
+    strategy='sliding_counter'
 )
 limiter.add_rule(rule)
 
@@ -212,6 +214,17 @@ rule = RateThrottleRule(
 )
 ```
 
+#### 4. Sliding Window Counter
+Best for: Accurate limiting with efficient memory usage
+```python
+rule = RateThrottleRule(
+    name='api_default',
+    limit=100,
+    window=60,
+    strategy='sliding_counter'
+)
+```
+
 ### Redis Backend (Distributed)
 
 ```python
@@ -239,7 +252,7 @@ storage:
 # Global settings
 global:
   enabled: true
-  default_strategy: sliding_window
+  default_strategy: sliding_counter
   headers_enabled: true
 
 # Rate limiting rules
@@ -430,7 +443,7 @@ ratethrottle stats --export report.json
 
 RateThrottle is designed for high performance:
 
-- **In-memory storage**: 100,000+ requests/second
+- **In-memory storage**: 10,000+ requests/second
 - **Redis storage**: 50,000+ requests/second (network dependent)
 - **Minimal overhead**: < 1ms per request check
 - **Thread-safe**: Safe for concurrent use

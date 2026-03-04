@@ -24,7 +24,7 @@ class TestRuleConfig:
         assert rule.limit == 100
         assert rule.window == 60
         assert rule.scope == "ip"
-        assert rule.strategy == "sliding_window"
+        assert rule.strategy == "sliding_counter"
 
     def test_empty_name_raises_error(self):
         """Test that empty name raises error"""

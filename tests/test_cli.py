@@ -2,20 +2,21 @@
 Tests for CLI functionality
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from ratethrottle.cli import (
-    RateThrottleCLI,
     Colors,
-    print_success,
+    RateThrottleCLI,
     print_error,
-    print_warning,
-    print_info,
     print_header,
+    print_info,
+    print_success,
+    print_warning,
 )
 
 

@@ -2,16 +2,16 @@
 Tests for gRPC rate limiting
 """
 
-import pytest
 from unittest.mock import Mock
 
+import pytest
 
 from ratethrottle.gRPC import (
     GRPCLimits,
     GRPCRateLimitInterceptor,
-    grpc_ratelimit,
     ServiceRateLimiter,
     extract_user_id_from_metadata,
+    grpc_ratelimit,
 )
 
 

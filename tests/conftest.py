@@ -3,7 +3,6 @@ Pytest configuration and fixtures
 """
 
 import sys
-import pytest
 import tempfile
 import time
 from pathlib import Path

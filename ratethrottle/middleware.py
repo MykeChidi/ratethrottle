@@ -91,7 +91,7 @@ class FlaskRateLimiter:
 
         # Add default config
         app.config.setdefault("RATELIMIT_STORAGE_URL", None)
-        app.config.setdefault("RATELIMIT_STRATEGY", "sliding_window")
+        app.config.setdefault("RATELIMIT_STRATEGY", "sliding_counter")
         app.config.setdefault("RATELIMIT_HEADERS_ENABLED", True)
         app.config.setdefault("RATELIMIT_KEY_PREFIX", "ratelimit:")
 
@@ -135,7 +135,7 @@ class FlaskRateLimiter:
         per: int = 60,
         scope: str = "ip",
         key_func: Optional[Callable] = None,
-        strategy: str = "sliding_window",
+        strategy: str = "sliding_counter",
         methods: Optional[List[str]] = None,
         error_message: Optional[str] = None,
     ):
@@ -375,7 +375,7 @@ class FastAPIRateLimiter:
         self,
         limit: int,
         window: int = 60,
-        strategy: str = "sliding_window",
+        strategy: str = "sliding_counter",
         key_func: Optional[Callable] = None,
         scope: str = "ip",
     ):
@@ -513,7 +513,7 @@ class DjangoRateLimitMiddleware:
                     name=f"django_{path_pattern.replace('/', '_')}",
                     limit=config.get("limit", 100),
                     window=config.get("window", 60),
-                    strategy=config.get("strategy", "sliding_window"),
+                    strategy=config.get("strategy", "sliding_counter"),
                 )
                 self.limiter.add_rule(rule)
                 logger.debug(f"Loaded Django rule for {path_pattern}")
@@ -604,7 +604,7 @@ class DjangoRateLimitMiddleware:
 
 
 def django_ratelimit(
-    limit: int, window: int = 60, key: str = "ip", strategy: str = "sliding_window"
+    limit: int, window: int = 60, key: str = "ip", strategy: str = "sliding_counter"
 ):
     """
     Django view decorator for rate limiting
@@ -822,7 +822,7 @@ class WSGIRateLimitMiddleware:
 
         # Add default rule
         default_rule = RateThrottleRule(
-            name="wsgi_default", limit=100, window=60, strategy="sliding_window"
+            name="wsgi_default", limit=100, window=60, strategy="sliding_counter"
         )
         self.limiter.add_rule(default_rule)
 
