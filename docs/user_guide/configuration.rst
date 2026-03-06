@@ -277,7 +277,7 @@ Example Complete Configuration
         limit: 100
         window: 60
         scope: ip
-        strategy: token_bucket
+        strategy: sliding_counter
         burst: 120
         block_duration: 300
 

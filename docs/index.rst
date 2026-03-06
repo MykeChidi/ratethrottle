@@ -20,6 +20,7 @@ Key Features
 * **DDoS Protection**: Advanced traffic analysis and automatic attack mitigation
 * **Multi-Framework Support**: Flask, FastAPI, Django, Starlette, and WSGI applications
 * **Multi-Protocol Support**: REST, GraphQL, gRPC, Websocket
+* **Adaptive Ratelimiting**: Statistical ML based adaptive ratelimiting
 * **Flexible Storage**: In-memory and Redis backends for distributed systems
 * **Analytics & Monitoring**: Comprehensive metrics, violation tracking, and reporting
 * **Production Ready**: Thread-safe, type-annotated, and thoroughly tested
@@ -69,6 +70,9 @@ Why RateThrottle?
 **Developer Friendly**
     Simple, intuitive API with extensive documentation and examples.
 
+**Adaptive Ratelimiting**
+    ML based adative ratelimiting that adjust limits based on user behaviour
+
 Getting Started
 ---------------
 
@@ -88,6 +92,7 @@ Getting Started
    user_guide/strategies
    user_guide/storage
    user_guide/configuration
+   user_guide/ml_adaptive
 
 .. toctree::
    :maxdepth: 2
@@ -113,6 +118,7 @@ Getting Started
    advanced/ddos_protection
    advanced/analytics
    advanced/cli
+   advanced/adaptive
    advanced/distributed
 
 

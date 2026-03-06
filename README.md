@@ -5,7 +5,7 @@
 
 **Advanced rate limiting and DDoS protection for Python web applications.**
 
-RateThrottle is a comprehensive rate limiting library that provides enterprise-level features for protecting your APIs and web applications from abuse, with built-in DDoS protection, different storage backends, multiple strategies and protocols with seamless integration with popular Python web frameworks.
+RateThrottle is a comprehensive rate limiting library that provides enterprise-level features for protecting your APIs and web applications from abuse, with built-in DDoS protection, different storage backends, multiple strategies and protocols, ML adaptive ratelimiting and seamless integration with popular Python web frameworks.
 
 ## ✨ Features
 
@@ -49,6 +49,11 @@ RateThrottle is a comprehensive rate limiting library that provides enterprise-l
   - Programmatic configuration
   - Hot-reloading support
 
+- **ML Adaptive Limiting**
+ - Pattern learning with Exponential Moving Average
+ - Z-score based anomaly detection
+ - Trust scoring system
+ - Automatic limit adjustment
 
 ## 🚀 Quick Start
 
@@ -138,6 +143,8 @@ def api_view(request):
 
 ### Standalone Usage
 
+**Basic limiting**
+
 ```python
 from ratethrottle import RateThrottleCore, RateThrottleRule
 
@@ -164,6 +171,25 @@ else:
     print(f"Request blocked! Retry after {status.retry_after} seconds")
 ```
 
+**Adaptive limiting**
+
+```python
+from ratethrottle import AdaptiveRateLimiter
+
+limiter = AdaptiveRateLimiter(
+      base_limit=100,
+      learning_rate=0.1,
+      anomaly_threshold=3.0
+)
+
+result = limiter.check_adaptive('user_123')
+if result['allowed']:
+    print(f"Limit: {result['adjusted_limit']}")
+    print(f"Trust: {result['trust_score']:.2f}")
+else:
+    print(f"Request blocked! Reason{result['reason']}")
+    print(f"Retry after {result['retry_after']}")
+```
 
 ## 📖 Documentation
 
