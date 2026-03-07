@@ -7,8 +7,8 @@ adjusts limits based on patterns, trust scores, and anomaly detection.
 This is a basic implementation using statistical methods.
 """
 
+import json
 import logging
-import pickle
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
@@ -506,9 +506,13 @@ class AdaptiveRateLimiter:
                 "window": self.window,
                 "learning_rate": self.learning_rate,
                 "anomaly_threshold": self.anomaly_threshold,
+                "trust_enabled": self.trust_enabled,
+                "min_multiplier": self.min_multiplier,
+                "max_multiplier": self.max_multiplier,
             },
             "profiles": {
                 identifier: {
+                    "identifier": p.identifier,
                     "first_seen": p.first_seen,
                     "last_seen": p.last_seen,
                     "request_count": p.request_count,
@@ -517,14 +521,16 @@ class AdaptiveRateLimiter:
                     "trust_score": p.trust_score,
                     "violation_count": p.violation_count,
                     "good_behavior_days": p.good_behavior_days,
+                    "request_rates": list(p.request_rates),
+                    "metadata": p.metadata,
                 }
                 for identifier, p in self.user_profiles.items()
             },
             "stats": self.stats,
         }
 
-        with open(filepath, "wb") as f:
-            pickle.dump(model_data, f)
+        with open(filepath, "w") as f:
+            json.dump(model_data, f, indent=2)
 
         logger.info(f"Model exported to {filepath}")
 
@@ -535,13 +541,13 @@ class AdaptiveRateLimiter:
         Args:
             filepath: Path to load model from
         """
-        with open(filepath, "rb") as f:
-            model_data = pickle.load(f)
+        with open(filepath, "r") as f:
+            model_data = json.load(f)
 
         # Restore profiles
         for identifier, data in model_data["profiles"].items():
             profile = UserProfile(
-                identifier=identifier,
+                identifier=data["identifier"],
                 first_seen=data["first_seen"],
                 last_seen=data["last_seen"],
                 request_count=data["request_count"],
@@ -550,6 +556,8 @@ class AdaptiveRateLimiter:
                 trust_score=data["trust_score"],
                 violation_count=data["violation_count"],
                 good_behavior_days=data["good_behavior_days"],
+                request_rates=deque(data["request_rates"], maxlen=100),
+                metadata=data.get("metadata", {}),
             )
             self.user_profiles[identifier] = profile
 

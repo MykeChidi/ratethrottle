@@ -8,6 +8,7 @@ including DDoS protection, analytics, multi-framework support and multi protocol
 import logging
 from typing import Optional
 
+from .adaptive import AdaptiveRateLimiter
 from .analytics import RateThrottleAnalytics
 from .config import ConfigManager
 from .core import RateThrottleCore, RateThrottleRule
@@ -52,6 +53,7 @@ __all__ = [
     "RateThrottleRule",
     "RateThrottleStatus",
     "RateThrottleViolation",
+    "AdaptiveRateLimiter",
     # Storage
     "StorageBackend",
     "InMemoryStorage",

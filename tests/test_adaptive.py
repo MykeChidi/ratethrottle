@@ -427,7 +427,7 @@ class TestModelPersistence:
             limiter.check_adaptive(f"user_{i}")
 
         # Export
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
             filepath = f.name
 
         try:
@@ -447,7 +447,7 @@ class TestModelPersistence:
             limiter1.check_adaptive(f"user_{i}")
 
         # Export
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pkl") as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as f:
             filepath = f.name
 
         try:

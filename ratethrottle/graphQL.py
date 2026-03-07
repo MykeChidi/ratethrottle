@@ -190,7 +190,7 @@ class ComplexityAnalyzer:
                     if hasattr(arg.value, "value"):
                         return int(arg.value.value)
                 except Exception:
-                    pass
+                    pass  # nosec
 
         # Default multiplier for lists
         return self.default_list_size
