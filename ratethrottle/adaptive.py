@@ -9,11 +9,13 @@ This is a basic implementation using statistical methods.
 
 import json
 import logging
+import math
+import threading
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,9 @@ class AdaptiveRateLimiter:
             "users_tracked": 0,
         }
 
+        # Lock for all profile/stat mutations
+        self._profile_lock = threading.Lock()
+
         logger.info(
             f"Adaptive rate limiter initialized: "
             f"base_limit={base_limit}, learning_rate={learning_rate}"
@@ -159,99 +164,133 @@ class AdaptiveRateLimiter:
                 - confidence (float): Confidence in decision
                 - reason (str): Why decision was made
         """
-        self.stats["total_requests"] += 1
+        with self._profile_lock:
+            self.stats["total_requests"] += 1
 
-        # Get or create user profile
-        if identifier not in self.user_profiles:
-            self.user_profiles[identifier] = self._create_profile(identifier)
-            self.stats["users_tracked"] += 1
+            # Get or create user profile
+            if identifier not in self.user_profiles:
+                self.user_profiles[identifier] = self._create_profile(identifier)
+                self.stats["users_tracked"] += 1
 
-        profile = self.user_profiles[identifier]
+            profile = self.user_profiles[identifier]
 
-        # Calculate current request rate
-        current_rate = self._calculate_current_rate(identifier)
+            # Calculate current request rate
+            current_rate = self._calculate_current_rate(identifier)
 
-        # Update profile with new data
-        self._update_profile(profile, current_rate, request_metadata)
+            # Update profile with new data
+            self._update_profile(profile, current_rate, request_metadata)
 
-        # Calculate anomaly score
-        anomaly_score = self._calculate_anomaly_score(profile, current_rate)
+            # Calculate anomaly score
+            anomaly_score = self._calculate_anomaly_score(profile, current_rate)
 
-        # Determine if request is anomalous
-        is_anomalous = anomaly_score > self.anomaly_threshold
+            # Determine if request is anomalous
+            is_anomalous = anomaly_score > self.anomaly_threshold
 
-        if is_anomalous:
-            self.stats["anomalies_detected"] += 1
-
-            if self.on_anomaly:
-                self.on_anomaly(
-                    {
-                        "identifier": identifier,
-                        "anomaly_score": anomaly_score,
-                        "current_rate": current_rate,
-                        "expected_rate": profile.mean_rate,
-                        "timestamp": time.time(),
-                    }
-                )
-
-        # Adjust limit based on behavior
-        adjusted_limit = self._adjust_limit(profile, is_anomalous)
-
-        # Use core limiter to check against adjusted limit
-        # Temporarily adjust the rule limit
-        original_limit = self.limiter.rules["adaptive"].limit
-        self.limiter.rules["adaptive"].limit = adjusted_limit
-
-        status = self.limiter.check_rate_limit(identifier, "adaptive")
-
-        # Restore original limit
-        self.limiter.rules["adaptive"].limit = original_limit
-
-        # Update violation count if blocked
-        if not status.allowed:
-            profile.violation_count += 1
-
-            # Recalculate trust score after violation
-            old_trust = profile.trust_score
-            profile.trust_score = self._calculate_trust_score(profile)
-
-            if self.on_trust_change and abs(old_trust - profile.trust_score) > 0.05:
-                self.on_trust_change(identifier, profile.trust_score)
-
-        # Calculate confidence
-        confidence = self._calculate_confidence(profile)
-
-        # Determine reason
-        if not status.allowed:
             if is_anomalous:
-                reason = "anomaly_detected"
-            else:
-                reason = "rate_limit_exceeded"
-        else:
-            reason = "allowed"
+                self.stats["anomalies_detected"] += 1
 
-        # Log request for learning
-        self.request_history[identifier].append(
-            {
-                "timestamp": time.time(),
-                "rate": current_rate,
-                "allowed": status.allowed,
-                "anomaly_score": anomaly_score,
-                "adjusted_limit": adjusted_limit,
-            }
+            # Adjust limit based on behavior
+            adjusted_limit = self._adjust_limit(profile, is_anomalous)
+
+            if is_anomalous and self.on_anomaly:
+                try:
+                    self.on_anomaly(
+                        {
+                            "identifier": identifier,
+                            "anomaly_score": anomaly_score,
+                            "current_rate": current_rate,
+                            "expected_rate": profile.mean_rate,
+                            "timestamp": time.time(),
+                        }
+                    )
+                except Exception as exc:
+                    logger.error(f"Error in on_anomaly callback: {exc}")
+
+        # Direct storage check — no shared-rule mutation
+        allowed, remaining, retry_after = self._check_with_limit(identifier, adjusted_limit)
+
+        # Post-check profile update (locked)
+        trust_delta = 0.0
+        with self._profile_lock:
+            if not allowed:
+                profile.violation_count += 1
+                old_trust = profile.trust_score
+                profile.trust_score = self._calculate_trust_score(profile)
+                trust_delta = profile.trust_score - old_trust
+
+            confidence = self._calculate_confidence(profile)
+
+            self.request_history[identifier].append(
+                {
+                    "timestamp": time.time(),
+                    "rate": current_rate,
+                    "allowed": allowed,
+                    "anomaly_score": anomaly_score,
+                    "adjusted_limit": adjusted_limit,
+                }
+            )
+
+        # Trust-change callback outside profile lock
+        if trust_delta != 0.0 and abs(trust_delta) > 0.05 and self.on_trust_change:
+            try:
+                self.on_trust_change(identifier, profile.trust_score)
+            except Exception as exc:
+                logger.error(f"on_trust_change callback error: {exc}")
+
+        reason = (
+            "anomaly_detected"
+            if not allowed and is_anomalous
+            else "rate_limit_exceeded" if not allowed else "allowed"
         )
 
         return {
-            "allowed": status.allowed,
+            "allowed": allowed,
             "adjusted_limit": adjusted_limit,
-            "remaining": status.remaining,
+            "remaining": remaining,
             "trust_score": profile.trust_score,
             "anomaly_score": anomaly_score,
             "confidence": confidence,
             "reason": reason,
             "base_limit": self.base_limit,
-            "retry_after": status.retry_after if not status.allowed else 0,
+            "retry_after": retry_after if not allowed else 0,
         }
+
+    def _check_with_limit(self, identifier: str, limit: int) -> Tuple[bool, int, int]:
+        """
+        Sliding-window counter check using the same key scheme as
+        SlidingWindowCounterStrategy so both subsystems share state.
+
+        Returns:
+            (allowed, remaining, retry_after_seconds).
+        Fails open on storage errors.
+        """
+        try:
+            now = time.time()
+            window_start = int(now / self.window) * self.window
+            prev_start = window_start - self.window
+            elapsed = now - window_start
+
+            cur_key = f"swc:adaptive:{identifier}:{window_start}"
+            prev_key = f"swc:adaptive:{identifier}:{prev_start}"
+
+            cur_count = self.storage.get(cur_key) or 0
+            prev_count = self.storage.get(prev_key) or 0
+
+            # Weighted count across window boundary
+            weighted = math.ceil(prev_count * (1.0 - elapsed / self.window) + cur_count)
+
+            if weighted < limit:
+                new_cur = self.storage.increment(cur_key, 1, int(self.window * 2))
+                new_weighted = math.ceil(prev_count * (1.0 - elapsed / self.window) + new_cur)
+                remaining = max(0, limit - new_weighted)
+                return True, remaining, 0
+            else:
+                retry_after = max(1, int(self.window - elapsed) + 1)
+                return False, 0, retry_after
+
+        except Exception as exc:
+            logger.error(f"AdaptiveRateLimiter storage error for {identifier}: {exc}; failing open")
+            return True, 1, 0
 
     def _create_profile(self, identifier: str) -> UserProfile:
         """Create new user profile"""
@@ -434,19 +473,23 @@ class AdaptiveRateLimiter:
             identifier: User identifier
             adjustment: Trust adjustment (-1.0 to +1.0)
         """
-        if identifier in self.user_profiles:
-            profile = self.user_profiles[identifier]
-            old_trust = profile.trust_score
+        with self._profile_lock:
+            if identifier in self.user_profiles:
+                profile = self.user_profiles[identifier]
+                old_trust = profile.trust_score
 
-            profile.trust_score = max(0.0, min(1.0, profile.trust_score + adjustment))
+                profile.trust_score = max(0.0, min(1.0, profile.trust_score + adjustment))
 
-            if self.on_trust_change:
+        if self.on_trust_change:
+            try:
                 self.on_trust_change(identifier, profile.trust_score)
+            except Exception as e:
+                logger.error(f"on_trust_change callback error {identifier}: {e}")
 
-            logger.info(
-                f"Trust score adjusted for {identifier}: "
-                f"{old_trust:.2f} -> {profile.trust_score:.2f}"
-            )
+        logger.info(
+            f"Trust score adjusted for {identifier}: "
+            f"{old_trust:.2f} -> {profile.trust_score:.2f}"
+        )
 
     def get_user_profile(self, identifier: str) -> Optional[Dict[str, Any]]:
         """
@@ -455,41 +498,43 @@ class AdaptiveRateLimiter:
         Returns:
             Dict with profile data or None if not found
         """
-        if identifier not in self.user_profiles:
-            return None
+        with self._profile_lock:
+            if identifier not in self.user_profiles:
+                return None
 
-        profile = self.user_profiles[identifier]
+            profile = self.user_profiles[identifier]
 
-        return {
-            "identifier": identifier,
-            "first_seen": datetime.fromtimestamp(profile.first_seen).isoformat(),
-            "last_seen": datetime.fromtimestamp(profile.last_seen).isoformat(),
-            "age_days": (time.time() - profile.first_seen) / 86400,
-            "request_count": profile.request_count,
-            "mean_rate": profile.mean_rate,
-            "std_rate": profile.std_rate,
-            "trust_score": profile.trust_score,
-            "violation_count": profile.violation_count,
-            "good_behavior_days": profile.good_behavior_days,
-            "current_limit": self._adjust_limit(profile, False),
-            "metadata": profile.metadata,
-        }
+            return {
+                "identifier": identifier,
+                "first_seen": datetime.fromtimestamp(profile.first_seen).isoformat(),
+                "last_seen": datetime.fromtimestamp(profile.last_seen).isoformat(),
+                "age_days": (time.time() - profile.first_seen) / 86400,
+                "request_count": profile.request_count,
+                "mean_rate": profile.mean_rate,
+                "std_rate": profile.std_rate,
+                "trust_score": profile.trust_score,
+                "violation_count": profile.violation_count,
+                "good_behavior_days": profile.good_behavior_days,
+                "current_limit": self._adjust_limit(profile, False),
+                "metadata": profile.metadata,
+            }
 
     def get_statistics(self) -> Dict[str, Any]:
         """Get limiter statistics"""
-        return {
-            "total_requests": self.stats["total_requests"],
-            "anomalies_detected": self.stats["anomalies_detected"],
-            "limits_adjusted": self.stats["limits_adjusted"],
-            "users_tracked": self.stats["users_tracked"],
-            "configuration": {
-                "base_limit": self.base_limit,
-                "window": self.window,
-                "learning_rate": self.learning_rate,
-                "anomaly_threshold": self.anomaly_threshold,
-                "trust_enabled": self.trust_enabled,
-            },
-        }
+        with self._profile_lock:
+            return {
+                "total_requests": self.stats["total_requests"],
+                "anomalies_detected": self.stats["anomalies_detected"],
+                "limits_adjusted": self.stats["limits_adjusted"],
+                "users_tracked": self.stats["users_tracked"],
+                "configuration": {
+                    "base_limit": self.base_limit,
+                    "window": self.window,
+                    "learning_rate": self.learning_rate,
+                    "anomaly_threshold": self.anomaly_threshold,
+                    "trust_enabled": self.trust_enabled,
+                },
+            }
 
     def export_model(self, filepath: str):
         """
@@ -498,36 +543,37 @@ class AdaptiveRateLimiter:
         Args:
             filepath: Path to save model
         """
-        model_data = {
-            "version": "1.0",
-            "timestamp": time.time(),
-            "config": {
-                "base_limit": self.base_limit,
-                "window": self.window,
-                "learning_rate": self.learning_rate,
-                "anomaly_threshold": self.anomaly_threshold,
-                "trust_enabled": self.trust_enabled,
-                "min_multiplier": self.min_multiplier,
-                "max_multiplier": self.max_multiplier,
-            },
-            "profiles": {
-                identifier: {
-                    "identifier": p.identifier,
-                    "first_seen": p.first_seen,
-                    "last_seen": p.last_seen,
-                    "request_count": p.request_count,
-                    "mean_rate": p.mean_rate,
-                    "std_rate": p.std_rate,
-                    "trust_score": p.trust_score,
-                    "violation_count": p.violation_count,
-                    "good_behavior_days": p.good_behavior_days,
-                    "request_rates": list(p.request_rates),
-                    "metadata": p.metadata,
-                }
-                for identifier, p in self.user_profiles.items()
-            },
-            "stats": self.stats,
-        }
+        with self._profile_lock:
+            model_data = {
+                "version": "1.0",
+                "timestamp": time.time(),
+                "config": {
+                    "base_limit": self.base_limit,
+                    "window": self.window,
+                    "learning_rate": self.learning_rate,
+                    "anomaly_threshold": self.anomaly_threshold,
+                    "trust_enabled": self.trust_enabled,
+                    "min_multiplier": self.min_multiplier,
+                    "max_multiplier": self.max_multiplier,
+                },
+                "profiles": {
+                    identifier: {
+                        "identifier": p.identifier,
+                        "first_seen": p.first_seen,
+                        "last_seen": p.last_seen,
+                        "request_count": p.request_count,
+                        "mean_rate": p.mean_rate,
+                        "std_rate": p.std_rate,
+                        "trust_score": p.trust_score,
+                        "violation_count": p.violation_count,
+                        "good_behavior_days": p.good_behavior_days,
+                        "request_rates": list(p.request_rates),
+                        "metadata": p.metadata,
+                    }
+                    for identifier, p in self.user_profiles.items()
+                },
+                "stats": self.stats,
+            }
 
         with open(filepath, "w") as f:
             json.dump(model_data, f, indent=2)
@@ -544,34 +590,36 @@ class AdaptiveRateLimiter:
         with open(filepath, "r") as f:
             model_data = json.load(f)
 
-        # Restore profiles
-        for identifier, data in model_data["profiles"].items():
-            profile = UserProfile(
-                identifier=data["identifier"],
-                first_seen=data["first_seen"],
-                last_seen=data["last_seen"],
-                request_count=data["request_count"],
-                mean_rate=data["mean_rate"],
-                std_rate=data["std_rate"],
-                trust_score=data["trust_score"],
-                violation_count=data["violation_count"],
-                good_behavior_days=data["good_behavior_days"],
-                request_rates=deque(data["request_rates"], maxlen=100),
-                metadata=data.get("metadata", {}),
-            )
-            self.user_profiles[identifier] = profile
+        with self._profile_lock:
+            # Restore profiles
+            for identifier, data in model_data["profiles"].items():
+                profile = UserProfile(
+                    identifier=data["identifier"],
+                    first_seen=data["first_seen"],
+                    last_seen=data["last_seen"],
+                    request_count=data["request_count"],
+                    mean_rate=data["mean_rate"],
+                    std_rate=data["std_rate"],
+                    trust_score=data["trust_score"],
+                    violation_count=data["violation_count"],
+                    good_behavior_days=data["good_behavior_days"],
+                    request_rates=deque(data["request_rates"], maxlen=100),
+                    metadata=data.get("metadata", {}),
+                )
+                self.user_profiles[identifier] = profile
 
-        # Restore stats
-        self.stats = model_data["stats"]
+            # Restore stats
+            self.stats = model_data["stats"]
 
         logger.info(f"Model loaded from {filepath} " f"({len(self.user_profiles)} profiles)")
 
     def reset_user(self, identifier: str):
         """Reset a user's profile"""
-        if identifier in self.user_profiles:
-            del self.user_profiles[identifier]
-            self.request_history.pop(identifier, None)
-            logger.info(f"User profile reset: {identifier}")
+        with self._profile_lock:
+            if identifier in self.user_profiles:
+                del self.user_profiles[identifier]
+                self.request_history.pop(identifier, None)
+                logger.info(f"User profile reset: {identifier}")
 
     def __repr__(self) -> str:
         return (

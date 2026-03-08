@@ -7,14 +7,68 @@ analysis and false positive prevention.
 
 import logging
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from .exceptions import ConfigurationError
 
 logger = logging.getLogger(__name__)
+
+
+class _BoundedLRUDict:
+    """
+    A mapping that evicts the least-recently-used key when full.
+
+    Attributes:
+        factory: zero-argument callable that produces the default value for a
+               missing key (same contract as defaultdict).
+        maxsize: maximum number of keys retained at any time.
+    """
+
+    def __init__(self, factory: Callable, maxsize: int = 100_000):
+        if maxsize < 1:
+            raise ValueError("maxsize must be >= 1")
+        self._factory = factory
+        self._maxsize = maxsize
+        self._data: OrderedDict = OrderedDict()
+
+    # Core mapping interface -------------------------------------------------
+
+    def __getitem__(self, key):
+        if key not in self._data:
+            if len(self._data) >= self._maxsize:
+                evicted, _ = self._data.popitem(last=False)
+                logger.debug(f"DDoS tracker evicted identifier: {evicted!r}")
+            self._data[key] = self._factory()
+        else:
+            self._data.move_to_end(key)
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        if key not in self._data and len(self._data) >= self._maxsize:
+            self._data.popitem(last=False)
+        self._data[key] = value
+        self._data.move_to_end(key)
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __len__(self):
+        return len(self._data)
+
+    def get(self, key, default=None):
+        if key not in self._data:
+            return default
+        self._data.move_to_end(key)
+        return self._data[key]
+
+    def pop(self, key, *args):
+        return self._data.pop(key, *args)
+
+    def clear(self):
+        self._data.clear()
 
 
 @dataclass
@@ -91,6 +145,7 @@ class DDoSProtection:
         "min_interval_threshold": 0.1,  # seconds
         "whitelist_on_good_behavior": True,
         "good_behavior_threshold": 1000,  # requests without issues
+        "max_tracked_identifiers": 100_000,  # LRU tracking limit
     }
 
     def __init__(self, config: Optional[Dict] = None):
@@ -119,14 +174,17 @@ class DDoSProtection:
         self.block_duration = self.config["block_duration"]
         self.suspicious_threshold = self.config["suspicious_threshold"]
         self.max_unique_endpoints = self.config["max_unique_endpoints"]
+        _cap = int(self.config["max_tracked_identifiers"])
 
         # Tracking data structures
-        self.request_history: Dict[str, deque] = defaultdict(lambda: deque(maxlen=10000))
-        self.endpoint_tracking: Dict[str, Set[str]] = defaultdict(set)
+        self.request_history: _BoundedLRUDict = _BoundedLRUDict(
+            lambda: deque(maxlen=10000), maxsize=_cap
+        )
+        self.endpoint_tracking: _BoundedLRUDict = _BoundedLRUDict(set, maxsize=_cap)
         self.blocked_ips: Set[str] = set()
         self.block_expiry: Dict[str, float] = {}
         self.suspicious_patterns: List[TrafficPattern] = []
-        self.good_behavior_counts: Dict[str, int] = defaultdict(int)
+        self.good_behavior_counts: _BoundedLRUDict = _BoundedLRUDict(int, maxsize=_cap)
         self.whitelisted_ips: Set[str] = set()
 
         # Statistics
@@ -161,6 +219,9 @@ class DDoSProtection:
             raise ConfigurationError(
                 f"Block duration cannot be negative, got {self.config['block_duration']}"
             )
+
+        if int(self.config.get("max_tracked_identifiers", 100_000)) < 1000:
+            raise ConfigurationError("max_tracked_identifiers must be at least 1,000")
 
     def analyze_traffic(
         self,
