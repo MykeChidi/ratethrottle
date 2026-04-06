@@ -9,6 +9,7 @@ import logging
 from typing import Optional
 
 from .adaptive import AdaptiveRateLimiter
+from .alerting import AlertDispatcher
 from .analytics import RateThrottleAnalytics
 from .config import ConfigManager
 from .core import RateThrottleCore, RateThrottleRule
@@ -35,6 +36,7 @@ from .middleware import (
     WSGIRateLimitMiddleware,
     django_ratelimit,
 )
+from .monitoring import RateThrottleMonitor
 from .storage_backend import InMemoryStorage, RedisStorage, StorageBackend
 from .websocket import (
     ChannelsRateLimiter,
@@ -44,7 +46,7 @@ from .websocket import (
     WebSocketRateLimiter,
 )
 
-__version__ = "1.3.1"
+__version__ = "1.3.3"
 __author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [
@@ -58,6 +60,9 @@ __all__ = [
     "StorageBackend",
     "InMemoryStorage",
     "RedisStorage",
+    # Monitoring and Alerting
+    "AlertDispatcher",
+    "RateThrottleMonitor",
     # Middleware
     "FlaskRateLimiter",
     "FastAPIRateLimiter",

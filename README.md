@@ -1,4 +1,7 @@
-# `RateThrottle`
+<div align="center">
+  <img src="./docs/logo.png" alt="Logo" width="200"/>
+  <h1> Ratethrottle </h1>
+</div>
 
 [![Pypi](https://img.shields.io/pypi/v/ratethrottle.svg)](https://pypi.org/project/ratethrottle/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -49,11 +52,11 @@ RateThrottle is a comprehensive rate limiting library that provides enterprise-l
   - Programmatic configuration
   - Hot-reloading support
 
-- **ML Adaptive Limiting**
- - Pattern learning with Exponential Moving Average
- - Z-score based anomaly detection
- - Trust scoring system
- - Automatic limit adjustment
+- 🤖 **ML Adaptive Limiting**
+  - Pattern learning with Exponential Moving Average
+  - Z-score based anomaly detection
+  - Trust scoring system
+  - Automatic limit adjustment
 
 ## 🚀 Quick Start
 
@@ -193,7 +196,7 @@ else:
 
 ## 📖 Documentation
 
-### Rate Limiting Strategies
+<details><summary>Rate Limiting Strategies</summary>
 
 #### 1. Token Bucket
 Best for: APIs with burst allowances
@@ -251,7 +254,9 @@ rule = RateThrottleRule(
 )
 ```
 
-### Redis Backend (Distributed)
+</details>
+
+<details><summary>Redis Backend (Distributed)</summary>
 
 ```python
 from ratethrottle import create_limiter
@@ -262,7 +267,9 @@ limiter = create_limiter('redis', 'redis://localhost:6379/0')
 # Now works across multiple servers!
 ```
 
-### Configuration Files
+</details>
+
+<details><summary>Configuration Files</summary>
 
 Create `ratethrottle.yaml`:
 
@@ -314,7 +321,10 @@ for rule in config.get_rules():
     limiter.add_rule(rule)
 ```
 
-### GRPC Example
+</details>
+
+<details><summary>GRPC Example</summary>
+
 ```python
 from concurrent import futures
 import grpc
@@ -332,9 +342,13 @@ interceptor = GRPCRateLimitInterceptor(
 server = grpc.server(
     futures.ThreadPoolExecutor(max_workers=10),
     interceptors=[interceptor]
+)
 ```
 
-### GraphQL Example
+</details>
+
+<details><summary>GraphQL Example</summary>
+
 ```python
 from ratethrottle import GraphQLRateLimiter, GraphQLLimits
 
@@ -355,7 +369,10 @@ if error:
     raise error # GraphQLError
 ```
 
-### Websocket Example
+</details>
+
+<details><summary>Websocket Example</summary>
+
 ```python
 from ratethrottle import WebSocketRateLimiter, WebSocketLimits
 
@@ -372,7 +389,62 @@ if await limiter.check_connection("client_id"):
     await limiter.register_connection("client_id", websocket)
 
 ```
-### DDoS Protection
+
+</details>
+
+<details><summary>Monitoring and Alerting</summary>
+
+```python
+from ratethrottle.monitoring import RateThrottleMonitor
+from ratethrottle.alerting import AlertDispatcher
+
+monitor = RateThrottleMonitor(
+    {
+        'enabled': True,
+        'interval': 60,
+        'log_metrics': True,
+        'export_json': True,
+        'export_path': 'metrics/metrics.json',
+    },
+    limiter=limiter,
+    ddos=ddos,
+    analytics=analytics,
+)
+
+dispatcher = AlertDispatcher(
+    {
+        'enabled': True,
+        'cooldown_seconds': 300,
+        'thresholds': {
+            'block_rate_warning': 5.0,
+            'block_rate_critical': 20.0,
+            'violations_per_minute_warning': 50.0,
+            'violations_per_minute_critical': 200.0,
+            'ddos_score_warning': 0.5,
+            'ddos_score_critical': 0.8,
+        },
+        'slack': {
+            'enabled': True,
+            'channel': '#alerts',
+            'username': 'RateThrottle',
+        },
+        'webhook': {
+            'enabled': False,
+            'url': '',
+            'timeout': 10,
+        },
+    }
+)
+
+monitor.start()
+
+snapshot = monitor.snapshot_now()
+dispatcher.check_and_alert(snapshot)
+```
+
+</details>
+
+<details><summary>DDoS Protection</summary>
 
 ```python
 from ratethrottle import DDoSProtection
@@ -397,7 +469,9 @@ if pattern.is_suspicious:
     print(f"Suspicion score: {pattern.suspicious_score:.2f}")
 ```
 
-### Whitelist/Blacklist Management
+</details>
+
+<details><summary>Whitelist/Blacklist Management</summary>
 
 ```python
 # Add to whitelist (bypass all limits)
@@ -410,7 +484,9 @@ limiter.add_to_blacklist('192.168.1.200', duration=3600)  # Block for 1 hour
 limiter.remove_from_blacklist('192.168.1.200')
 ```
 
-### Violation Callbacks
+</details>
+
+<details><summary>Violation Callbacks</summary>
 
 ```python
 def handle_violation(violation):
@@ -424,7 +500,9 @@ def handle_violation(violation):
 limiter.register_violation_callback(handle_violation)
 ```
 
-### Metrics and Monitoring
+</details>
+
+<details><summary>Metrics</summary>
 
 ```python
 # Get metrics
@@ -439,7 +517,9 @@ print(f"Recent violations: {len(metrics['recent_violations'])}")
 limiter.reset_metrics()
 ```
 
-## 🖥️ CLI Usage
+</details>
+
+<details><summary>🖥️ CLI Usage</summary>
 
 RateThrottle includes a powerful CLI for monitoring and management:
 
@@ -463,6 +543,7 @@ ratethrottle config --validate
 # Export statistics
 ratethrottle stats --export report.json
 ```
+</details>
 
 
 ## 📊 Performance

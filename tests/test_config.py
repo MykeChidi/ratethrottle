@@ -281,7 +281,7 @@ class TestConfigManager:
     def test_get_alerts_config(self):
         """Test getting alerts config"""
         config = ConfigManager()
-        alerts_config = config.get_alerts_config()
+        alerts_config = config.get_alerting_config()
 
         assert "enabled" in alerts_config
 

@@ -9,26 +9,37 @@ import argparse
 import logging
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
+if TYPE_CHECKING:
+    from .storage_backend import InMemoryStorage, RedisStorage
 # Handle both direct execution and package import
 try:
     # Try package import first
+    from .adaptive import AdaptiveRateLimiter
+    from .alerting import AlertDispatcher
     from .analytics import RateThrottleAnalytics
     from .config import ConfigManager
     from .core import RateThrottleCore
     from .ddos import DDoSProtection
     from .exceptions import ConfigurationError
+    from .monitoring import RateThrottleMonitor
+    from .storage_backend import InMemoryStorage, RedisStorage  # noqa
 except ImportError:
     # Direct execution - add parent directory to path
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    from ratethrottle.adaptive import AdaptiveRateLimiter
+    from ratethrottle.alerting import AlertDispatcher
     from ratethrottle.analytics import RateThrottleAnalytics
     from ratethrottle.config import ConfigManager
     from ratethrottle.core import RateThrottleCore
     from ratethrottle.ddos import DDoSProtection
     from ratethrottle.exceptions import ConfigurationError
+    from ratethrottle.monitoring import RateThrottleMonitor
+    from ratethrottle.storage_backend import InMemoryStorage, RedisStorage  # noqa
 
 logger = logging.getLogger(__name__)
 
@@ -204,37 +215,202 @@ class RateThrottleCLI:
         self.limiter: Optional[RateThrottleCore] = None
         self.ddos: Optional[DDoSProtection] = None
         self.analytics: Optional[RateThrottleAnalytics] = None
+        self.adaptive: Optional[AdaptiveRateLimiter] = None
+        self.monitor: Optional[RateThrottleMonitor] = None
+        self.alerter: Optional[AlertDispatcher] = None
+        self._storage: Any = None  # shared storage reference for monitor and alerter
 
-    def _load_config(self, config_file: str):
-        """Load configuration"""
+    def _load_config(self, config_file: str) -> None:
+        """Load configuration and initialize components"""
         try:
             self.config = ConfigManager(config_file)
-            self.limiter = RateThrottleCore()
 
-            # Add rules from config
+            # global log level
+            global_cfg = self.config.get_global_config()
+            log_level = getattr(logging, global_cfg.get("log_level", "INFO").upper(), logging.INFO)
+            logging.getLogger("ratethrottle").setLevel(log_level)
+
+            # storage
+            storage_cfg = self.config.get_storage_config()
+            storage_type = storage_cfg.get("type", "memory")
+
+            if storage_type == "redis":
+                redis_cfg = storage_cfg.get("redis", {})
+                storage: Union["RedisStorage", "InMemoryStorage"]
+                try:
+                    import redis as _redis
+
+                    client = _redis.Redis(
+                        host=redis_cfg.get("host", "localhost"),
+                        port=int(redis_cfg.get("port", 6379)),
+                        db=int(redis_cfg.get("db", 0)),
+                        password=redis_cfg.get("password"),
+                        socket_timeout=int(redis_cfg.get("socket_timeout", 5)),
+                        socket_connect_timeout=int(redis_cfg.get("socket_connect_timeout", 5)),
+                        retry_on_timeout=bool(redis_cfg.get("retry_on_timeout", True)),
+                        health_check_interval=int(redis_cfg.get("health_check_interval", 30)),
+                        max_connections=int(redis_cfg.get("max_connections", 50)),
+                    )
+                    client.ping()
+                    storage = RedisStorage(
+                        client,
+                        key_prefix=redis_cfg.get("key_prefix", "ratethrottle:"),
+                    )
+                    print_success("Connected to Redis storage")
+                except Exception as exc:
+                    print_warning(f"Redis failed ({exc}); falling back to memory")
+
+                    storage = InMemoryStorage()
+            else:
+                storage = InMemoryStorage()
+
+            self._storage = storage  # keep reference for alerter
+
+            # limiter + rules
+            self.limiter = RateThrottleCore(storage=storage)
             for rule in self.config.get_rules():
-                self.limiter.add_rule(rule)
+                try:
+                    self.limiter.add_rule(rule)
+                except Exception as exc:
+                    print_warning(f"Skipping rule '{rule.name}': {exc}")
 
-            # Setup DDoS protection
-            ddos_config = self.config.get_ddos_config()
-            self.ddos = DDoSProtection(ddos_config)
+            # DDoS
+            self.ddos = DDoSProtection(self.config.get_ddos_config())
 
-            # Setup analytics
-            self.analytics = RateThrottleAnalytics()
+            # analytics
+            acfg = self.config.get_analytics_config()
+            if acfg.get("enabled", True):
+                self.analytics = RateThrottleAnalytics(
+                    max_history=int(acfg.get("max_history", 10000)),
+                    enable_metadata=bool(acfg.get("enable_metadata", True)),
+                    sanitize_data=bool(acfg.get("sanitize_data", True)),
+                )
 
-            print_success(f"Loaded {len(self.limiter.rules)} rules from {config_file}")
+            # adaptive
+            adcfg = self.config.get_adaptive_config()
+            if adcfg.get("enabled", False):
+                self.adaptive = AdaptiveRateLimiter(
+                    base_limit=int(adcfg.get("base_limit", 100)),
+                    window=int(adcfg.get("window", 60)),
+                    learning_rate=float(adcfg.get("learning_rate", 0.1)),
+                    anomaly_threshold=float(adcfg.get("anomaly_threshold", 3.0)),
+                    trust_enabled=bool(adcfg.get("trust_enabled", True)),
+                    min_multiplier=float(adcfg.get("min_multiplier", 0.5)),
+                    max_multiplier=float(adcfg.get("max_multiplier", 3.0)),
+                    storage=storage,
+                )
+                persistence = adcfg.get("persistence", {})
+                if persistence.get("enabled") and persistence.get("auto_load_on_start"):
+                    model_path = persistence.get("filepath", "models/adaptive_model.pkl")
+                    if Path(model_path).exists():
+                        try:
+                            self.adaptive.load_model(model_path)
+                            print_success(f"Adaptive model loaded from {model_path}")
+                        except Exception as exc:
+                            print_warning(f"Could not load adaptive model: {exc}")
+
+            # monitoring
+            mcfg = self.config.get_monitoring_config()
+            if mcfg.get("enabled", True):
+                self.monitor = RateThrottleMonitor(
+                    config=mcfg,
+                    limiter=self.limiter,
+                    ddos=self.ddos,
+                    analytics=self.analytics,
+                )
+
+            # alerting — FIX: pass storage for distributed cooldown
+            alcfg = self.config.get_alerting_config()
+            if alcfg.get("enabled", False):
+                self.alerter = AlertDispatcher(
+                    config=alcfg,
+                    storage=self._storage,  # ← distributed cooldown
+                )
+
+            # websocket
+            wscfg = self.config.get_websocket_config()
+            if wscfg.get("enabled", False):
+                try:
+                    from .websocket import WebSocketLimits, WebSocketRateLimiter
+
+                    self.ws_limiter = WebSocketRateLimiter(
+                        limits=WebSocketLimits(
+                            connections_per_minute=int(wscfg.get("connections_per_minute", 60)),
+                            messages_per_minute=int(wscfg.get("messages_per_minute", 1000)),
+                            max_concurrent_connections=int(
+                                wscfg.get("max_concurrent_connections", 10)
+                            ),
+                            max_message_size=int(wscfg.get("max_message_size", 65536)),
+                            bytes_per_minute=wscfg.get("bytes_per_minute"),
+                        ),
+                        storage=storage,
+                    )
+                    print_success("WebSocket rate limiter configured")
+                except ImportError:
+                    print_warning("WebSocket dependencies not installed — skipping")
+
+            # gRPC
+            grpccfg = self.config.get_grpc_config()
+            if grpccfg.get("enabled", False):
+                try:
+                    from .gRPC import GRPCLimits, GRPCRateLimitInterceptor
+
+                    self.grpc_interceptor = GRPCRateLimitInterceptor(
+                        limits=GRPCLimits(
+                            requests_per_minute=int(grpccfg.get("requests_per_minute", 1000)),
+                            concurrent_requests=int(grpccfg.get("concurrent_requests", 50)),
+                            stream_messages_per_minute=int(
+                                grpccfg.get("stream_messages_per_minute", 5000)
+                            ),
+                        ),
+                        storage=storage,
+                    )
+                    print_success("gRPC interceptor configured")
+                except ImportError:
+                    print_warning("gRPC dependencies not installed — skipping")
+
+            # GraphQL
+            gqlcfg = self.config.get_graphql_config()
+            if gqlcfg.get("enabled", False):
+                try:
+                    from .graphQL import GraphQLLimits, GraphQLRateLimiter
+
+                    self.graphql_limiter = GraphQLRateLimiter(
+                        limits=GraphQLLimits(
+                            queries_per_minute=int(gqlcfg.get("queries_per_minute", 1000)),
+                            mutations_per_minute=int(gqlcfg.get("mutations_per_minute", 100)),
+                            subscriptions_per_minute=int(
+                                gqlcfg.get("subscriptions_per_minute", 50)
+                            ),
+                            max_complexity=int(gqlcfg.get("max_complexity", 1000)),
+                            max_depth=int(gqlcfg.get("max_depth", 15)),
+                            field_limits=gqlcfg.get("field_limits") or None,
+                        ),
+                        storage=storage,
+                        custom_field_costs=gqlcfg.get("field_costs") or None,
+                    )
+                    print_success("GraphQL rate limiter configured")
+                except ImportError:
+                    print_warning("GraphQL dependencies not installed — skipping")
+
+            print_success(
+                f"Config loaded: {len(self.limiter.rules)} rules, "
+                f"storage={storage_type}, "
+                f"ddos={'on' if self.ddos.enabled else 'off'}"
+            )
 
         except FileNotFoundError:
-            print_error(f"Configuration file not found: {config_file}")
+            print_error(f"Config file not found: {config_file}")
             sys.exit(1)
-        except ConfigurationError as e:
-            print_error(f"Configuration error: {e}")
+        except ConfigurationError as exc:
+            print_error(f"Configuration error: {exc}")
             sys.exit(1)
-        except Exception as e:
-            print_error(f"Failed to load configuration: {e}")
+        except Exception as exc:
+            print_error(f"Failed to load config: {exc}")
+            logger.exception("_load_config unexpected error")
             sys.exit(1)
 
-    def run_monitor(self, args):
+    def run_monitor(self, args) -> None:
         """Run monitoring dashboard"""
         print_header("RateThrottle Monitor")
 
@@ -243,26 +419,102 @@ class RateThrottleCLI:
         assert self.limiter is not None, "Limiter not initialized"  # nosec
         assert self.ddos is not None, "DDoS protection not initialized"  # nosec
 
-        print_info(f"Rules loaded: {len(self.limiter.rules)}")
-        print_info(f"DDoS Protection: {'ENABLED' if self.ddos.enabled else 'DISABLED'}")
+        print_info(f"Rules: {len(self.limiter.rules)}")
+        if self.ddos:
+            print_info(f"DDoS: {'ENABLED' if self.ddos.enabled else 'DISABLED'}")
+        if self.monitor:
+            print_info(f"Background monitor interval: {self.monitor.interval}s")
+        if self.alerter:
+            print_info(f"Alerting: {self.alerter}")
 
-        # Setup signal handler
-        def signal_handler(sig, frame):
-            print("\n")
-            print_info("Shutting down...")
+        def _shutdown(*_):
+            print()
+            print_info("Shutting down…")
+            _stop_all()
             sys.exit(0)
 
-        signal.signal(signal.SIGINT, signal_handler)
+        def _stop_all():
+            if self.monitor:
+                self.monitor.stop()
+            if self._save_thread and self._save_thread.is_alive():
+                self._save_stop.set()
+            _save_model_on_exit()
 
-        # Start dashboard
-        assert self.limiter is not None, "Limiter not initialized"  # nosec
+        def _save_model_on_exit():
+            if self.config is None or self.adaptive is None:
+                return
+            adcfg = self.config.get_adaptive_config()
+            persistence = adcfg.get("persistence", {})
+            if persistence.get("enabled"):
+                model_path = persistence.get("filepath", "models/adaptive_model.pkl")
+                try:
+                    Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+                    self.adaptive.export_model(model_path)
+                    print_success(f"Adaptive model saved to {model_path}")
+                except Exception as exc:
+                    print_warning(f"Could not save adaptive model: {exc}")
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+        # Start background monitor
+        if self.monitor:
+            self.monitor.start()
+
+        # Hook alerter into each monitor tick
+        if self.monitor and self.alerter:
+            monitor = self.monitor
+            alerter = self.alerter
+            _orig_tick = monitor._tick
+
+            def _tick_with_alerts():
+                _orig_tick()
+                snap = monitor.latest_snapshot()
+                if snap:
+                    alerter.check_and_alert(snap)
+
+            setattr(monitor, "_tick", _tick_with_alerts)
+
+        # Periodic adaptive model save in a separate daemon thread
+        self._save_stop = threading.Event()
+        self._save_thread = None
+        if self.adaptive and self.config:
+            adcfg = self.config.get_adaptive_config()
+            persistence = adcfg.get("persistence", {})
+            save_interval = int(persistence.get("auto_save_interval", 0))
+            model_path = persistence.get("filepath", "models/adaptive_model.pkl")
+            adaptive = self.adaptive
+
+            if persistence.get("enabled") and save_interval > 0:
+
+                def _periodic_save():
+                    while not self._save_stop.wait(timeout=save_interval):
+                        try:
+                            Path(model_path).parent.mkdir(parents=True, exist_ok=True)
+                            adaptive.export_model(model_path)
+                            logger.info(f"Adaptive model auto-saved to {model_path}")
+                        except Exception as exc:
+                            logger.warning(f"Adaptive model auto-save failed: {exc}")
+
+                self._save_thread = threading.Thread(
+                    target=_periodic_save,
+                    name="ratethrottle-adaptive-save",
+                    daemon=True,
+                )
+                self._save_thread.start()
+                print_success(
+                    f"Adaptive model periodic save: every {save_interval}s → {model_path}"
+                )
+
+        # Foreground dashboard
         dashboard = RateThrottleDashboard(self.limiter, self.ddos, self.analytics)
-
         try:
-            dashboard.start(interval=args.interval if hasattr(args, "interval") else 2)
+            dashboard.start(interval=getattr(args, "interval", 2))
         except KeyboardInterrupt:
-            print("\n")
+            print()
             print_info("Monitor stopped")
+        finally:
+            _stop_all()
 
     def run_test(self, args):
         """Test rate limiting configuration"""
@@ -279,8 +531,8 @@ class RateThrottleCLI:
             sys.exit(1)
 
         print_info(f"Testing rule: {args.rule}")
-        print_info(f"Identifier: {args.identifier}")
-        print_info(f"Requests: {args.requests}")
+        print_info(f"Identifier:   {args.identifier}")
+        print_info(f"Requests:     {args.requests}")
         print()
 
         allowed_count = 0
@@ -332,11 +584,22 @@ class RateThrottleCLI:
 
             elif args.validate:
                 print_success("Configuration is valid")
-                print_info(f"  Rules: {len(self.config.get_rules())}")
-                print_info(f"  Storage: {self.config.get('storage.type')}")
-                print_info(
-                    f"  DDoS: {'ENABLED' if self.config.get('ddos_protection.enabled') else 'DISABLED'}"  # noqa
-                )
+                for label, key in [
+                    ("Rules", None),
+                    ("Storage", "storage.type"),
+                    ("DDoS", "ddos_protection.enabled"),
+                    ("Adaptive", "adaptive.enabled"),
+                    ("Monitoring", "monitoring.enabled"),
+                    ("Alerting", "alerting.enabled"),
+                    ("WebSocket", "websocket.enabled"),
+                    ("gRPC", "grpc.enabled"),
+                    ("GraphQL", "graphql.enabled"),
+                ]:
+                    if key is None:
+                        print_info(f"  Rules:      {len(self.config.get_rules())}")
+                    else:
+                        val = self.config.get(key)
+                        print_info(f"  {label+':':<12} {val}")
 
             elif args.export:
                 output_path = Path(args.export)
@@ -584,4 +847,4 @@ For more information, visit: https://github.com/MykeChidi/ratethrottle
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

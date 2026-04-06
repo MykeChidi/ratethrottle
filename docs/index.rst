@@ -120,6 +120,7 @@ Getting Started
    advanced/cli
    advanced/adaptive
    advanced/distributed
+   advanced/monitor_and_alert
 
 
 Support & Community
