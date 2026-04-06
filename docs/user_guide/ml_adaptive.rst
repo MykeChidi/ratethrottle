@@ -407,7 +407,7 @@ Save Model
 .. code-block:: python
 
     # After learning from production traffic
-    limiter.export_model('adaptive_model.pkl')
+    limiter.export_model('adaptive_model.json')
 
 Load Model
 ~~~~~~~~~~
@@ -416,7 +416,7 @@ Load Model
 
     # Start with learned behavior
     limiter = AdaptiveRateLimiter(base_limit=100)
-    limiter.load_model('adaptive_model.pkl')
+    limiter.load_model('adaptive_model.json')
     
     # Model includes all user profiles and learned patterns
 
@@ -431,14 +431,14 @@ Use Case: Graceful Restarts
     
     # Load existing model on startup
     try:
-        limiter.load_model('adaptive_model.pkl')
+        limiter.load_model('adaptive_model.json')
         logger.info("Loaded existing model")
     except FileNotFoundError:
         logger.info("Starting with fresh model")
     
     # Save on shutdown
     def save_model():
-        limiter.export_model('adaptive_model.pkl')
+        limiter.export_model('adaptive_model.json')
         logger.info("Model saved")
     
     atexit.register(save_model)
@@ -633,11 +633,11 @@ Best Practices
     def save_model_periodically():
         while True:
             time.sleep(3600)  # Every hour
-            limiter.export_model('adaptive_model.pkl')
+            limiter.export_model('adaptive_model.json')
     
     threading.Thread(target=save_model_periodically, daemon=True).start()
     
     # Load on startup
-    limiter.load_model('adaptive_model.pkl')
+    limiter.load_model('adaptive_model.json')
 
 See :doc:`../advanced/adaptive` for more examples

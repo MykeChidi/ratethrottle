@@ -251,7 +251,7 @@ class ConfigManager:
             "max_multiplier": 3.0,
             "persistence": {
                 "enabled": False,
-                "filepath": "models/adaptive_model.pkl",
+                "filepath": "models/adaptive_model.json",
                 "auto_save_interval": 3600,  # seconds; 0 = disabled
                 "auto_load_on_start": True,
             },
@@ -416,8 +416,12 @@ class ConfigManager:
 
         if self.config_file:
             if not self.config_file.exists():
-                raise ConfigurationError(f"Configuration file not found: {self.config_file}")
-            self._load_yaml()
+                self.save_config(self.config_file)
+                logger.info(
+                    f"Configuration file not found; wrote default config to {self.config_file}"
+                )
+            else:
+                self._load_yaml()
         else:
             logger.info("No config file — using defaults + environment variables")
 
@@ -432,7 +436,7 @@ class ConfigManager:
         """Parse YAML file and deep-merge into self.config."""
         assert self.config_file is not None  # nosec
         try:
-            with open(self.config_file, "r") as fh:
+            with open(self.config_file, "r", encoding="utf-8-sig") as fh:
                 user_config = yaml.safe_load(fh)
 
             if user_config is None:
@@ -447,6 +451,10 @@ class ConfigManager:
             self._merge_config(self.config, user_config)
             logger.info(f"Configuration loaded from {self.config_file}")
 
+        except UnicodeDecodeError as exc:
+            raise ConfigurationError(
+                f"Failed to read config file {self.config_file}: {exc}"
+            ) from exc
         except yaml.YAMLError as exc:
             raise ConfigurationError(f"Failed to parse YAML: {self.config_file}: {exc}") from exc
 
@@ -841,8 +849,14 @@ class ConfigManager:
             raise ConfigurationError("No save path specified")
         try:
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(save_path, "w") as fh:
-                yaml.dump(self.config, fh, default_flow_style=False, sort_keys=False)
+            with open(save_path, "w", encoding="utf-8") as fh:
+                yaml.safe_dump(
+                    self.config,
+                    fh,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    allow_unicode=True,
+                )
             logger.info(f"Configuration saved to {save_path}")
         except Exception as exc:
             raise ConfigurationError(f"Failed to save configuration: {exc}") from exc

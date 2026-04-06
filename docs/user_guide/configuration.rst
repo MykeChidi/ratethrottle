@@ -118,26 +118,266 @@ Loading Configuration
 Environment Variables
 ---------------------
 
-Override settings with environment variables:
+RateThrottle supports configuration overrides through environment variables. These variables take precedence over YAML file settings and default values. Environment variables are particularly useful for:
+
+* **Deployment-specific settings** (e.g., Redis connection details)
+* **Secrets management** (e.g., API keys, passwords)
+* **Containerized environments** (e.g., Docker, Kubernetes)
+* **CI/CD pipelines**
+
+Variable Naming Convention
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All environment variables use the ``RT_`` prefix to avoid conflicts with other applications.
+
+Setting Environment Variables
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Linux/macOS:**
 
 .. code-block:: bash
 
-    export RATETHROTTLE_STORAGE_TYPE=redis
-    export RATETHROTTLE_REDIS_URL=redis://localhost:6379/0
-    export RATETHROTTLE_DEFAULT_LIMIT=100
-    export RATETHROTTLE_DEFAULT_WINDOW=60
+    export RT_STORAGE_TYPE=redis
+    export RT_REDIS_HOST=localhost
+    export RT_REDIS_PORT=6379
 
-Usage:
+**Windows (PowerShell):**
 
-.. code-block:: python
+.. code-block:: powershell
 
-    import os
-    from ratethrottle import create_limiter
+    $env:RT_STORAGE_TYPE = "redis"
+    $env:RT_REDIS_HOST = "localhost"
+    $env:RT_REDIS_PORT = "6379"
 
-    limiter = create_limiter(
-        storage=os.getenv('RATETHROTTLE_STORAGE_TYPE', 'memory'),
-        redis_url=os.getenv('RATETHROTTLE_REDIS_URL')
-    )
+**Windows (Command Prompt):**
+
+.. code-block:: batch
+
+    set RT_STORAGE_TYPE=redis
+    set RT_REDIS_HOST=localhost
+    set RT_REDIS_PORT=6379
+
+**Docker:**
+
+.. code-block:: yaml
+
+    services:
+      app:
+        environment:
+          - RT_STORAGE_TYPE=redis
+          - RT_REDIS_HOST=redis
+          - RT_REDIS_PORT=6379
+
+**Kubernetes:**
+
+.. code-block:: yaml
+
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: ratethrottle-config
+    data:
+      RT_STORAGE_TYPE: "redis"
+      RT_REDIS_HOST: "redis-service"
+      RT_REDIS_PORT: "6379"
+
+Supported Environment Variables
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Storage Configuration
+^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Storage Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_STORAGE_TYPE``
+     - string
+     - Storage backend type: ``memory`` or ``redis``
+   * - ``RT_REDIS_HOST``
+     - string
+     - Redis server hostname (default: ``localhost``)
+   * - ``RT_REDIS_PORT``
+     - int
+     - Redis server port (default: ``6379``)
+   * - ``RT_REDIS_DB``
+     - int
+     - Redis database number (default: ``0``)
+   * - ``RT_REDIS_PASSWORD``
+     - string
+     - Redis authentication password
+   * - ``RT_REDIS_KEY_PREFIX``
+     - string
+     - Prefix for Redis keys (default: ``ratethrottle:``)
+
+Global Configuration
+^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Global Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_ENABLED``
+     - bool
+     - Enable/disable rate throttling globally (default: ``true``)
+   * - ``RT_LOG_LEVEL``
+     - string
+     - Logging level: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR``, ``CRITICAL``
+   * - ``RT_HEADERS_ENABLED``
+     - bool
+     - Include rate limit headers in responses (default: ``true``)
+
+DDoS Protection
+^^^^^^^^^^^^^^^
+
+.. list-table:: DDoS Protection Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_DDOS_ENABLED``
+     - bool
+     - Enable DDoS protection (default: ``true``)
+   * - ``RT_DDOS_THRESHOLD``
+     - int
+     - DDoS detection threshold (requests per window)
+   * - ``RT_DDOS_BLOCK_DURATION``
+     - int
+     - DDoS block duration in seconds
+
+Adaptive Rate Limiting
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table:: Adaptive Rate Limiting Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_ADAPTIVE_ENABLED``
+     - bool
+     - Enable adaptive rate limiting (default: ``false``)
+
+Monitoring
+^^^^^^^^^^
+
+.. list-table:: Monitoring Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_MONITORING_ENABLED``
+     - bool
+     - Enable monitoring and metrics collection (default: ``true``)
+   * - ``RT_MONITORING_INTERVAL``
+     - int
+     - Monitoring update interval in seconds (default: ``60``)
+
+Alerting
+^^^^^^^^
+
+.. list-table:: Alerting Environment Variables
+   :header-rows: 1
+   :widths: 25 15 60
+
+   * - Variable
+     - Type
+     - Description
+   * - ``RT_ALERTING_ENABLED``
+     - bool
+     - Enable alerting system (default: ``false``)
+   * - ``RT_SLACK_WEBHOOK_URL``
+     - string
+     - Slack webhook URL for notifications
+   * - ``RT_WEBHOOK_URL``
+     - string
+     - Generic webhook URL for notifications
+   * - ``RT_EMAIL_PASSWORD``
+     - string
+     - SMTP password for email alerts
+   * - ``RT_PAGERDUTY_KEY``
+     - string
+     - PagerDuty routing key for incidents
+
+Boolean Values
+^^^^^^^^^^^^^^
+
+Boolean environment variables accept the following values (case-insensitive):
+
+* **True**: ``1``, ``true``, ``yes``, ``on``
+* **False**: ``0``, ``false``, ``no``, ``off``
+
+Examples
+~~~~~~~~
+
+**Basic Redis Configuration:**
+
+.. code-block:: bash
+
+    export RT_STORAGE_TYPE=redis
+    export RT_REDIS_HOST=redis.example.com
+    export RT_REDIS_PORT=6380
+    export RT_REDIS_PASSWORD=secret123
+
+**Production Settings:**
+
+.. code-block:: bash
+
+    export RT_LOG_LEVEL=WARNING
+    export RT_DDOS_ENABLED=true
+    export RT_DDOS_THRESHOLD=50000
+    export RT_MONITORING_ENABLED=true
+    export RT_ALERTING_ENABLED=true
+    export RT_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+**Development Override:**
+
+.. code-block:: bash
+
+    export RT_ENABLED=false  # Disable throttling in development
+
+**Docker Compose:**
+
+.. code-block:: yaml
+
+    version: '3.8'
+    services:
+      ratethrottle-app:
+        environment:
+          - RT_STORAGE_TYPE=redis
+          - RT_REDIS_HOST=redis
+          - RT_DDOS_ENABLED=true
+          - RT_MONITORING_ENABLED=true
+
+Priority Order
+~~~~~~~~~~~~~~
+
+Configuration values are applied in this order (later sources override earlier ones):
+
+1. **Default values** (hardcoded in code)
+2. **YAML file** (if specified)
+3. **Environment variables** (highest priority)
+
+This allows environment variables to override any setting from YAML files, which is useful for deployment-specific configurations.
+
+Validation
+~~~~~~~~~~
+
+Environment variable values are validated when the configuration is loaded. Invalid values (e.g., non-numeric strings for integer variables) will log a warning and be ignored, falling back to the previous configuration source.
+
+.. note::
+   Environment variables are only read once during configuration initialization. Changes to environment variables require restarting the application to take effect.
 
 Configuration Options
 ---------------------

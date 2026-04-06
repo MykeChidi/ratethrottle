@@ -256,21 +256,25 @@ class TestConfigCommand:
         assert captured.out
 
     def test_config_validate_missing_file(self, cli, capsys):
-        """Test config --validate with missing file"""
+        """Test config --validate with missing file creates default config"""
         args = Mock()
         args.config = "nonexistent.yaml"
         args.show = False
         args.validate = True
         args.export = None
 
-        with pytest.raises(SystemExit) as exc_info:
-            cli.run_config(args)
+        if Path(args.config).exists():
+            Path(args.config).unlink()
 
-        assert exc_info.value.code == 1
-        captured = capsys.readouterr()
-        # Should show error
-        output_text = (captured.out + captured.err).lower()
-        assert "not found" in output_text or "error" in output_text
+        try:
+            cli.run_config(args)
+            captured = capsys.readouterr()
+            output_text = (captured.out + captured.err).lower()
+            assert "configuration is valid" in output_text
+            assert Path(args.config).exists()
+        finally:
+            if Path(args.config).exists():
+                Path(args.config).unlink()
 
     def test_config_export(self, cli, temp_config):
         """Test config --export"""
@@ -537,22 +541,25 @@ class TestCLIErrorHandling:
         return RateThrottleCLI()
 
     def test_invalid_config_file(self, cli, capsys):
-        """Test handling of invalid config file"""
+        """Test missing config file creates default config"""
         args = Mock()
         args.config = "nonexistent_file.yaml"
         args.show = False
         args.validate = True
         args.export = None
 
-        # Should exit with error, catch the SystemExit
-        with pytest.raises(SystemExit) as exc_info:
-            cli.run_config(args)
+        if Path(args.config).exists():
+            Path(args.config).unlink()
 
-        assert exc_info.value.code == 1
-        captured = capsys.readouterr()
-        # Check combined output
-        output_text = (captured.out + captured.err).lower()
-        assert "not found" in output_text or "error" in output_text
+        try:
+            cli.run_config(args)
+            captured = capsys.readouterr()
+            output_text = (captured.out + captured.err).lower()
+            assert "configuration is valid" in output_text
+            assert Path(args.config).exists()
+        finally:
+            if Path(args.config).exists():
+                Path(args.config).unlink()
 
     def test_keyboard_interrupt_handling(self, cli, temp_config):
         """Test Ctrl+C handling in monitor"""

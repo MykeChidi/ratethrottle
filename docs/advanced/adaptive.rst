@@ -141,12 +141,12 @@ Pattern 5: Model Persistence
     
     # Load on startup
     try:
-        limiter.load_model('model.pkl')
+        limiter.load_model('model.json')
     except FileNotFoundError:
         pass
     
     # Save on shutdown
-    atexit.register(lambda: limiter.export_model('model.pkl'))
+    atexit.register(lambda: limiter.export_model('model.json'))
 
 Example Applications
 --------------------
@@ -424,9 +424,9 @@ Cheat Sheet
     * - Get stats
       - ``stats = limiter.get_statistics()``
     * - Save model
-      - ``limiter.export_model('model.pkl')``
+      - ``limiter.export_model('model.json')``
     * - Load model
-      - ``limiter.load_model('model.pkl')``
+      - ``limiter.load_model('model.json')``
     * - Adjust trust
       - ``limiter.update_trust_score('user_123', 0.1)``
     * - Reset User

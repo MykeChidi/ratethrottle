@@ -91,9 +91,19 @@ class TestConfigManager:
         assert "storage" in config.config
 
     def test_initialization_with_nonexistent_file(self):
-        """Test initialization with non-existent file raises error"""
-        with pytest.raises(ConfigurationError, match="not found"):
-            ConfigManager("nonexistent.yaml")
+        """Test initialization creates default config file when missing"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            temp_path = Path(f.name)
+        temp_path.unlink()
+
+        try:
+            config = ConfigManager(temp_path)
+            assert config.get("storage.type") == "memory"
+            assert temp_path.exists()
+            loaded = yaml.safe_load(temp_path.read_text(encoding="utf-8"))
+            assert loaded and loaded.get("storage", {}).get("type") == "memory"
+        finally:
+            temp_path.unlink()
 
     def test_load_valid_config(self):
         """Test loading valid configuration"""
@@ -110,6 +120,24 @@ class TestConfigManager:
             config = ConfigManager(temp_path)
             assert config.get("storage.type") == "memory"
             assert len(config.get_rules()) == 1
+        finally:
+            Path(temp_path).unlink()
+
+    def test_load_utf8_encoded_config(self):
+        """Test loading UTF-8 encoded configuration"""
+        config_data = {
+            "storage": {"type": "memory"},
+            "rules": [{"name": "api–test", "limit": 100, "window": 60}],
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, encoding="utf-8") as f:
+            yaml.dump(config_data, f)
+            temp_path = f.name
+
+        try:
+            config = ConfigManager(temp_path)
+            assert config.get("storage.type") == "memory"
+            assert config.get_rules()[0].name == "api–test"
         finally:
             Path(temp_path).unlink()
 
