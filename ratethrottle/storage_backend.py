@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .exceptions import StorageError
 
@@ -109,6 +109,53 @@ class StorageBackend(ABC):
         """
         pass
 
+    @abstractmethod
+    def check_and_delete_if_expired(self, key: str) -> Tuple[bool, Optional[Any]]:
+        """
+        Atomically check if key exists, get its value, and delete if expired.
+
+        Returns:
+            Tuple of (exists: bool, value: Optional[Any])
+            - (False, None) if key doesn't exist or has expired
+            - (True, value) if key exists and not expired
+
+        Raises:
+            StorageError: If operation fails
+        """
+        pass
+
+    @abstractmethod
+    def set_if_not_exists(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """
+        Atomically set value only if key doesn't exist (SET NX for Redis).
+
+        Returns:
+            True if set successfully, False if already exists
+
+        Raises:
+            StorageError: If operation fails
+        """
+        pass
+
+    @abstractmethod
+    def delete_many(self, keys: List[str]) -> int:
+        """
+        Delete multiple keys atomically.
+
+        Returns:
+            Number of keys deleted
+
+        Raises:
+            StorageError: If operation fails
+        """
+        pass
+
+    def evaluate_lua(self, script: str, keys: List[str], args: List[Any]) -> Any:
+        """
+        Evaluate a Lua script (if supported)
+        """
+        raise NotImplementedError("evaluate_lua is only supported in RedisStorage")
+
     def health_check(self) -> bool:
         """
         Check if storage backend is healthy
@@ -141,11 +188,11 @@ class StorageBackend(ABC):
 
 class InMemoryStorage(StorageBackend):
     """
-    Thread-safe in-memory storage backend
+    Thread-safe in-memory storage with automatic TTL cleanup
 
     Features:
         - Thread-safe operations with RLock
-        - Automatic expiration cleanup
+        - Automatic expiration cleanup thread
         - TTL support
         - Zero external dependencies
 
@@ -162,85 +209,138 @@ class InMemoryStorage(StorageBackend):
         'value'
     """
 
-    def __init__(self, cleanup_interval: int = 60):
+    def __init__(self, cleanup_interval: int = 300, max_keys: int = 1000000):
         """
-        Initialize in-memory storage
+        Initialize in-memory storage.
 
         Args:
-            cleanup_interval: Seconds between cleanup of expired entries
+            cleanup_interval: Seconds between expired key cleanup (default: 5 min)
+            max_keys: Maximum keys before cleanup (default: 1M)
         """
-        self._data: Dict[str, Tuple[Any, Optional[float]]] = {}
+        self._data: Dict[str, Tuple[Any, Optional[float]]] = {}  # (value, expiry_time)
         self._lock = threading.RLock()
         self._cleanup_interval = cleanup_interval
-        self._last_cleanup = time.time()
-        logger.info("Initialized InMemoryStorage")
+        self.max_keys = max_keys
+        self._cleanup_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._stats = {"sets": 0, "gets": 0, "deletes": 0, "cleanups": 0, "evictions": 0}
+
+        # Start cleanup daemon
+        self._start_cleanup_daemon()
+        logger.info(f"InMemoryStorage: cleanup every {cleanup_interval}s, max {max_keys} keys")
+
+    def _start_cleanup_daemon(self):
+        """Start background cleanup thread"""
+
+        def cleanup_loop():
+            while not self._stop_event.is_set():
+                try:
+                    self._cleanup_expired()
+                except Exception as e:
+                    logger.error(f"Cleanup error: {e}")
+                finally:
+                    # Wait with interruption support
+                    self._stop_event.wait(self._cleanup_interval)
+
+        self._cleanup_thread = threading.Thread(
+            target=cleanup_loop, name="ratethrottle-memory-cleanup", daemon=True
+        )
+        self._cleanup_thread.start()
 
     def _cleanup_expired(self) -> int:
-        """
-        Remove expired entries
+        """Remove expired keys"""
+        with self._lock:
+            now = time.time()
+            expired = []
 
-        Returns:
-            Number of entries removed
-        """
-        now = time.time()
+            for k, (_, expiry) in self._data.items():
+                if expiry is not None and expiry <= now:
+                    expired.append(k)
 
-        # Only cleanup periodically to avoid overhead
-        if now - self._last_cleanup < self._cleanup_interval:
-            return 0
+            for k in expired:
+                del self._data[k]
 
-        expired = [k for k, (v, exp) in self._data.items() if exp is not None and exp < now]
+            if expired:
+                logger.debug(f"Cleaned {len(expired)} expired keys, {len(self._data)} remaining")
+                self._stats["cleanups"] += 1
 
-        for key in expired:
-            del self._data[key]
-
-        self._last_cleanup = now
-
-        if expired:
-            logger.debug(f"Cleaned up {len(expired)} expired entries")
-
-        return len(expired)
-
-    def get(self, key: str) -> Optional[Any]:
-        """Get value for key"""
-        if not isinstance(key, str):
-            raise StorageError(f"Key must be string, got {type(key).__name__}")
-
-        try:
-            with self._lock:
-                self._cleanup_expired()
-
-                if key in self._data:
-                    value, expiry = self._data[key]
-
-                    # Check if expired
-                    if expiry is None or expiry > time.time():
-                        return value
-                    else:
-                        # Remove expired entry
-                        del self._data[key]
-
-                return None
-        except Exception as e:
-            logger.error(f"Error getting key '{key}': {e}")
-            raise StorageError(f"Failed to get key: {e}") from e
+            return len(expired)
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
-        """Set value for key with optional TTL"""
+        """Set value with optional TTL"""
         if not isinstance(key, str):
             raise StorageError(f"Key must be string, got {type(key).__name__}")
 
         if ttl is not None and ttl < 0:
             raise StorageError(f"TTL cannot be negative, got {ttl}")
 
-        try:
-            with self._lock:
-                expiry = time.time() + ttl if ttl else None
-                self._data[key] = (value, expiry)
-                logger.debug(f"Set key '{key}' with TTL={ttl}")
-                return True
-        except Exception as e:
-            logger.error(f"Error setting key '{key}': {e}")
-            raise StorageError(f"Failed to set key: {e}") from e
+        expiry_time = (time.time() + ttl) if ttl else None
+
+        with self._lock:
+            # Evict if too many keys
+            if len(self._data) >= self.max_keys:
+                # Remove oldest expired or least recently used
+                self._evict_lru()
+
+            self._data[key] = (value, expiry_time)
+            self._stats["sets"] += 1
+
+        return True
+
+    def get(self, key: str) -> Optional[Any]:
+        """Get value if exists and not expired"""
+        if not isinstance(key, str):
+            raise StorageError(f"Key must be string, got {type(key).__name__}")
+
+        with self._lock:
+            if key not in self._data:
+                return None
+
+            value, expiry = self._data[key]
+
+            # Check expiry
+            if expiry is not None and expiry <= time.time():
+                del self._data[key]
+                return None
+
+            self._stats["gets"] += 1
+            return value
+
+    def check_and_delete_if_expired(self, key: str) -> Tuple[bool, Optional[Any]]:
+        """Atomically check, get, and delete if expired"""
+        if not isinstance(key, str):
+            raise StorageError(f"Key must be string, got {type(key).__name__}")
+
+        with self._lock:
+            if key not in self._data:
+                return (False, None)
+
+            value, expiry = self._data[key]
+
+            if expiry is not None and expiry <= time.time():
+                del self._data[key]
+                return (False, None)
+
+            return (True, value)
+
+    def set_if_not_exists(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """Atomically set only if doesn't exist"""
+        if not isinstance(key, str):
+            raise StorageError(f"Key must be string, got {type(key).__name__}")
+
+        expiry_time = (time.time() + ttl) if ttl else None
+
+        with self._lock:
+            if key in self._data:
+                value_, expiry = self._data[key]
+                # Check if existing key is expired
+                if expiry is not None and expiry <= time.time():
+                    del self._data[key]
+                else:
+                    return False
+
+            self._data[key] = (value, expiry_time)
+            return True
 
     def increment(self, key: str, amount: int = 1, ttl: Optional[int] = None) -> int:
         """Increment counter atomically"""
@@ -250,56 +350,65 @@ class InMemoryStorage(StorageBackend):
         if not isinstance(amount, int):
             raise StorageError(f"Amount must be int, got {type(amount).__name__}")
 
-        try:
-            with self._lock:
-                current = self.get(key)
+        with self._lock:
+            if key in self._data:
+                value, expiry = self._data[key]
+                if expiry and expiry <= time.time():
+                    del self._data[key]
+                    value = 0
+            else:
+                value = 0
 
-                if current is None:
-                    new_value = amount
-                else:
-                    if not isinstance(current, (int, float)):
-                        raise StorageError(
-                            f"Cannot increment non-numeric value: {type(current).__name__}"
-                        )
-                    new_value = int(current) + amount
+            if not isinstance(value, (int, float)):
+                raise StorageError(f"Cannot increment non-numeric value: {type(value).__name__}")
 
-                self.set(key, new_value, ttl)
-                logger.debug(f"Incremented key '{key}' by {amount} to {new_value}")
-                return new_value
-        except StorageError:
-            raise
-        except Exception as e:
-            logger.error(f"Error incrementing key '{key}': {e}")
-            raise StorageError(f"Failed to increment key: {e}") from e
+            new_value = int(value) + amount
+            expiry_time = (time.time() + ttl) if ttl else None
+            self._data[key] = (new_value, expiry_time)
+            self._stats["sets"] += 1
+
+            return new_value
 
     def delete(self, key: str) -> bool:
         """Delete key"""
         if not isinstance(key, str):
             raise StorageError(f"Key must be string, got {type(key).__name__}")
 
-        try:
-            with self._lock:
+        with self._lock:
+            if key in self._data:
+                del self._data[key]
+                self._stats["deletes"] += 1
+                return True
+            return False
+
+    def delete_many(self, keys: List[str]) -> int:
+        """Delete multiple keys"""
+        count = 0
+        with self._lock:
+            for key in keys:
+                if not isinstance(key, str):
+                    continue
                 if key in self._data:
                     del self._data[key]
-                    logger.debug(f"Deleted key '{key}'")
-                    return True
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting key '{key}': {e}")
-            raise StorageError(f"Failed to delete key: {e}") from e
+                    count += 1
+            self._stats["deletes"] += count
+        return count
 
     def exists(self, key: str) -> bool:
-        """Check if key exists"""
+        """Check if key exists and not expired"""
         if not isinstance(key, str):
             raise StorageError(f"Key must be string, got {type(key).__name__}")
 
-        try:
-            return self.get(key) is not None
-        except StorageError:
-            raise
-        except Exception as e:
-            logger.error(f"Error checking existence of key '{key}': {e}")
-            raise StorageError(f"Failed to check key existence: {e}") from e
+        with self._lock:
+            if key not in self._data:
+                return False
+
+            _, expiry = self._data[key]
+            if expiry is not None and expiry <= time.time():
+                del self._data[key]
+                return False
+
+            return True
 
     def clear(self) -> int:
         """
@@ -334,16 +443,42 @@ class InMemoryStorage(StorageBackend):
                 "memory_usage_estimate": sum(
                     len(str(k)) + len(str(v)) for k, (v, _) in self._data.items()
                 ),
+                **self._stats,
             }
 
+    def _evict_lru(self):
+        """Evict least recently used or first expired key"""
+        # First try to evict expired
+        now = time.time()
+        for k, (_, expiry) in list(self._data.items()):
+            if expiry and expiry <= now:
+                del self._data[k]
+                self._stats["evictions"] += 1
+                return
+
+        # If no expired, evict first key (FIFO)
+        if self._data:
+            k = next(iter(self._data))
+            del self._data[k]
+            self._stats["evictions"] += 1
+
+    def shutdown(self):
+        """Cleanup resources"""
+        self._stop_event.set()
+        if self._cleanup_thread:
+            self._cleanup_thread.join(timeout=5)
+        self._data.clear()
+        logger.info("InMemoryStorage shutdown")
+
     def get_info(self) -> Dict[str, Any]:
-        """Get storage backend information"""
-        return {
-            "type": "InMemoryStorage",
-            "healthy": self.health_check(),
-            "stats": self.get_stats(),
-            "cleanup_interval": self._cleanup_interval,
-        }
+        """Get storage info"""
+        with self._lock:
+            return {
+                "type": "InMemoryStorage",
+                "healthy": self.health_check(),
+                "stats": self.get_stats(),
+                "cleanup_interval": self._cleanup_interval,
+            }
 
     def __repr__(self) -> str:
         """String representation"""
@@ -536,6 +671,67 @@ class RedisStorage(StorageBackend):
         except Exception as e:
             logger.error(f"Redis EXISTS error for key '{key}': {e}")
             raise StorageError(f"Failed to check key existence in Redis: {e}") from e
+
+    def check_and_delete_if_expired(self, key: str) -> Tuple[bool, Optional[Any]]:
+        """Atomically check and delete if expired using Lua script"""
+        script = """
+        local value = redis.call('GET', KEYS[1])
+        if not value then
+            return {0, nil}
+        end
+
+        local expiry = tonumber(value) or 0
+        if expiry > 0 and expiry <= tonumber(ARGV[1]) then
+            redis.call('DEL', KEYS[1])
+            return {0, nil}
+        end
+
+        return {1, value}
+        """
+
+        try:
+            full_key = self._make_key(key)
+            import time
+
+            result = self.redis.eval(script, 1, full_key, str(time.time()))
+            return bool(result[0]), self._deserialize(result[1]) if result[1] else None
+        except Exception as e:
+            raise StorageError(f"Atomic check_and_delete failed: {e}")
+
+    def set_if_not_exists(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        """Atomically set only if doesn't exist (SET NX)"""
+        try:
+            full_key = self._make_key(key)
+            serialized = self._serialize(value)
+
+            if ttl:
+                result = self.redis.set(full_key, serialized, nx=True, ex=ttl)
+            else:
+                result = self.redis.set(full_key, serialized, nx=True)
+
+            return bool(result)
+        except Exception as e:
+            raise StorageError(f"set_if_not_exists failed: {e}")
+
+    def delete_many(self, keys: List[str]) -> Any:
+        """Delete multiple keys"""
+        if not keys:
+            return 0
+
+        try:
+            full_keys = [self._make_key(k) for k in keys]
+            return self.redis.delete(*full_keys)
+        except Exception as e:
+            raise StorageError(f"delete_many failed: {e}")
+
+    def evaluate_lua(self, script: str, keys: List[str], args: List[Any]) -> Any:
+        """Evaluate a Lua script atomically"""
+        try:
+            full_keys = [self._make_key(k) for k in keys]
+            return self.redis.eval(script, len(keys), *(full_keys + args))
+        except Exception as e:
+            logger.error(f"Redis script execution error: {e}")
+            raise StorageError(f"Failed to execute Lua script: {e}") from e
 
     def health_check(self) -> bool:
         """Check if Redis connection is healthy"""

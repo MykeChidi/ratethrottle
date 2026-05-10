@@ -421,8 +421,11 @@ class FastAPIRateLimiter:
                 key_getter = key_func or self.key_func
                 identifier = key_getter(request)
 
-                # Check rate limit
-                status = self.limiter.check_rate_limit(
+                # Check rate limit asynchronously using threadpool
+                from starlette.concurrency import run_in_threadpool
+
+                status = await run_in_threadpool(
+                    self.limiter.check_rate_limit,
                     identifier,
                     rule_name,
                     metadata={
@@ -755,8 +758,13 @@ class StarletteRateLimitMiddleware:
 
         if rule_name:
             try:
-                status = self.limiter.check_rate_limit(
-                    identifier, rule_name, metadata={"path": path, "method": scope.get("method")}
+                from starlette.concurrency import run_in_threadpool
+
+                status = await run_in_threadpool(
+                    self.limiter.check_rate_limit,
+                    identifier,
+                    rule_name,
+                    metadata={"path": path, "method": scope.get("method")},
                 )
 
                 if not status.allowed:

@@ -89,74 +89,119 @@ class TokenBucketStrategy(RateLimitStrategy):
         now = time.time()
 
         try:
-            # Get current state
-            state = storage.get(key)
+            from .storage_backend import RedisStorage
 
-            if state is None:
-                # Initialize new bucket
-                burst_value = float(rule.burst if rule.burst is not None else rule.limit)
-                state = {"tokens": burst_value, "last_update": now}
-                logger.debug(f"Initialized token bucket for {identifier}: " f"{burst_value} tokens")
+            burst_val = float(rule.burst if rule.burst is not None else rule.limit)
 
-            # Validate state structure
-            if not isinstance(state, dict) or "tokens" not in state or "last_update" not in state:
-                logger.warning(f"Invalid token bucket state for {identifier}, reinitializing")
-                burst_value = float(rule.burst if rule.burst is not None else rule.limit)
-                state = {"tokens": burst_value, "last_update": now}
+            if hasattr(storage, "evaluate_lua") and isinstance(storage, RedisStorage):
+                script = """
+                local state_str = redis.call('get', KEYS[1])
+                local now = tonumber(ARGV[3])
+                local burst = tonumber(ARGV[1])
+                local limit = tonumber(ARGV[4])
+                local window = tonumber(ARGV[5])
+                local refill_rate = limit / window
+                local tokens = burst
+                local last_update = now
 
-            # Calculate refill
-            time_passed = now - state["last_update"]
-            refill_rate = rule.limit / rule.window
-            tokens_to_add = time_passed * refill_rate
+                if state_str then
+                    local state = cjson.decode(state_str)
+                    tokens = tonumber(state.tokens)
+                    last_update = tonumber(state.last_update)
 
-            # Update tokens (cap at burst limit)
-            burst_limit = float(rule.burst if rule.burst is not None else rule.limit)
-            state["tokens"] = min(burst_limit, state["tokens"] + tokens_to_add)
-            state["last_update"] = now
+                    local time_passed = now - last_update
+                    local tokens_to_add = time_passed * refill_rate
+                    tokens = math.min(burst, tokens + tokens_to_add)
+                end
 
-            # Check if we have tokens available
-            if state["tokens"] >= 1.0:
-                # Consume one token
-                state["tokens"] -= 1.0
-
-                # Save state
-                storage.set(key, state, rule.window * 2)
-
-                logger.debug(
-                    f"Token bucket allowed for {identifier}: "
-                    f"{state['tokens']:.2f} tokens remaining"
+                if tokens >= 1.0 then
+                    tokens = tokens - 1.0
+                    local new_state = {tokens = tokens, last_update = now}
+                    redis.call('setex', KEYS[1], tonumber(ARGV[2]), cjson.encode(new_state))
+                    return {1, tokens}
+                else
+                    local time_until_token = (1.0 - tokens) / refill_rate
+                    return {0, math.max(1, math.floor(time_until_token))}
+                end
+                """
+                result = storage.evaluate_lua(
+                    script, [key], [burst_val, rule.window * 2, now, rule.limit, rule.window]
                 )
 
-                return True, RateThrottleStatus(
-                    allowed=True,
-                    remaining=int(state["tokens"]),
-                    limit=rule.limit,
-                    reset_time=int(now + rule.window),
-                    rule_name=rule.name,
-                )
+                if result[0] == 1:
+                    tokens_remaining = result[1]
+                    logger.debug(
+                        f"Token bucket allowed for {identifier}: {tokens_remaining:.2f} tokens remaining"  # noqa
+                    )
+                    return True, RateThrottleStatus(
+                        allowed=True,
+                        remaining=int(tokens_remaining),
+                        limit=rule.limit,
+                        reset_time=int(now + rule.window),
+                        rule_name=rule.name,
+                    )
+                else:
+                    retry_after = result[1]
+                    logger.debug(
+                        f"Token bucket blocked {identifier}: no tokens available, retry after {retry_after}s"  # noqa
+                    )
+                    return False, RateThrottleStatus(
+                        allowed=False,
+                        remaining=0,
+                        limit=rule.limit,
+                        reset_time=int(now + retry_after),
+                        retry_after=retry_after,
+                        rule_name=rule.name,
+                        blocked=True,
+                    )
             else:
-                # No tokens available
-                # Calculate when next token will be available
-                time_until_token = (1.0 - state["tokens"]) / refill_rate
-                retry_after = max(1, int(time_until_token))
+                import contextlib
 
-                # Save state (don't consume token)
-                storage.set(key, state, rule.window * 2)
+                lock = getattr(storage, "_lock", None)
+                with lock if lock else contextlib.nullcontext():
+                    # Get current state
+                    state = storage.get(key)
 
-                logger.debug(
-                    f"Token bucket blocked {identifier}: "
-                    f"no tokens available, retry after {retry_after}s"
-                )
+                    if state is None:
+                        state = {"tokens": burst_val, "last_update": now}
 
-                return False, RateThrottleStatus(
-                    allowed=False,
-                    remaining=0,
-                    limit=rule.limit,
-                    reset_time=int(now + retry_after),
-                    retry_after=retry_after,
-                    rule_name=rule.name,
-                    blocked=True,
-                )
+                    if (
+                        not isinstance(state, dict)
+                        or "tokens" not in state
+                        or "last_update" not in state
+                    ):
+                        state = {"tokens": burst_val, "last_update": now}
+
+                    time_passed = now - state["last_update"]
+                    refill_rate = rule.limit / rule.window
+                    tokens_to_add = time_passed * refill_rate
+
+                    state["tokens"] = min(burst_val, state["tokens"] + tokens_to_add)
+                    state["last_update"] = now
+
+                    if state["tokens"] >= 1.0:
+                        state["tokens"] -= 1.0
+                        storage.set(key, state, rule.window * 2)
+                        return True, RateThrottleStatus(
+                            allowed=True,
+                            remaining=int(state["tokens"]),
+                            limit=rule.limit,
+                            reset_time=int(now + rule.window),
+                            rule_name=rule.name,
+                        )
+                    else:
+                        time_until_token = (1.0 - state["tokens"]) / refill_rate
+                        retry_after = max(1, int(time_until_token))
+                        storage.set(key, state, rule.window * 2)
+                        return False, RateThrottleStatus(
+                            allowed=False,
+                            remaining=0,
+                            limit=rule.limit,
+                            reset_time=int(now + retry_after),
+                            retry_after=retry_after,
+                            rule_name=rule.name,
+                            blocked=True,
+                        )
 
         except Exception as e:
             logger.error(f"Token bucket strategy error: {e}")

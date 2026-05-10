@@ -8,14 +8,13 @@ validation, and monitoring capabilities.
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Type
 
 from .exceptions import (
     InvalidRuleError,
-    RuleNotFoundError,
-    StorageError,
     StrategyNotFoundError,
 )
 from .storage_backend import InMemoryStorage, StorageBackend
@@ -207,30 +206,44 @@ class RateThrottleCore:
         "sliding_counter": SlidingWindowCounterStrategy,
     }
 
-    def __init__(self, storage: Optional[StorageBackend] = None):
+    def __init__(
+        self, storage: Optional[StorageBackend] = None, use_distributed_lists: bool = True
+    ):
         """
         Initialize rate throttle engine
 
         Args:
             storage: Storage backend for rate limit data (default: in-memory)
+            use_distributed_lists: Store lists in backend for distributed access
         """
         self.storage = storage or InMemoryStorage()
+        self.use_distributed_lists = use_distributed_lists and not isinstance(
+            self.storage, InMemoryStorage
+        )
+
         self.rules: Dict[str, RateThrottleRule] = {}
         self.strategies: Dict[str, RateLimitStrategy] = {
             name: cls() for name, cls in self.STRATEGIES.items()
         }
+
+        # Local caches for performance
         self.whitelist: Set[str] = set()
         self.blacklist: Set[str] = set()
+        self._list_cache_time = 0
+        self._list_cache_ttl = 60  # Refresh cache every 60s
+
         self.violation_callbacks: List[Callable[[RateThrottleViolation], None]] = []
         self.metrics: Dict[str, Any] = {
             "total_requests": 0,
             "allowed_requests": 0,
             "blocked_requests": 0,
-            "violations": [],
+            "violations": deque(maxlen=1000),
         }
         self._lock = threading.RLock()
 
-        logger.info("RateThrottleCore initialized")
+        logger.info(
+            f"RateThrottleCore initialized (distributed_lists={self.use_distributed_lists})"
+        )
 
     def add_rule(self, rule: RateThrottleRule) -> None:
         """
@@ -306,15 +319,13 @@ class RateThrottleCore:
         """
         return list(self.rules.keys())
 
-    def add_to_whitelist(self, identifier: str) -> None:
+    def add_to_whitelist(self, identifier: str, persistent: bool = True) -> None:
         """
         Add identifier to whitelist (bypasses all limits)
 
         Args:
             identifier: Client identifier to whitelist
-
-        Examples:
-            >>> limiter.add_to_whitelist('192.168.1.100')
+            persistent: Store in backend for distributed access
         """
         if not identifier:
             logger.warning("Attempted to whitelist empty identifier")
@@ -322,43 +333,59 @@ class RateThrottleCore:
 
         with self._lock:
             self.whitelist.add(identifier)
-            logger.info(f"Added to whitelist: {identifier}")
+
+            if persistent and self.use_distributed_lists:
+                try:
+                    # Store in backend with long TTL (30 days)
+                    self.storage.set(f"whitelist:{identifier}", "1", ttl=2592000)  # 30 days
+                    logger.info(f"Added to whitelist (persisted): {identifier}")
+                except Exception as e:
+                    logger.error(f"Failed to persist whitelist entry: {e}")
+            else:
+                logger.debug(f"Added to whitelist (local): {identifier}")
 
     def remove_from_whitelist(self, identifier: str) -> bool:
-        """
-        Remove identifier from whitelist
-
-        Args:
-            identifier: Client identifier to remove
-
-        Returns:
-            True if removed, False if not in whitelist
-        """
+        """Remove identifier from whitelist"""
         with self._lock:
-            if identifier in self.whitelist:
+            was_whitelisted = identifier in self.whitelist
+            if was_whitelisted:
                 self.whitelist.discard(identifier)
+
+                if self.use_distributed_lists:
+                    try:
+                        self.storage.delete(f"whitelist:{identifier}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove persisted whitelist entry: {e}")
+
                 logger.info(f"Removed from whitelist: {identifier}")
-                return True
-            return False
+
+            return was_whitelisted
 
     def is_whitelisted(self, identifier: str) -> bool:
         """Check if identifier is whitelisted"""
-        return identifier in self.whitelist
+        # Check local cache first (fast path)
+        if identifier in self.whitelist:
+            return True
 
-    def add_to_blacklist(self, identifier: str, duration: Optional[int] = None) -> None:
+        # Check persistent storage
+        if self.use_distributed_lists:
+            try:
+                return self.storage.exists(f"whitelist:{identifier}")
+            except Exception:
+                pass
+
+        return False
+
+    def add_to_blacklist(
+        self, identifier: str, duration: Optional[int] = None, persistent: bool = True
+    ) -> None:
         """
         Add identifier to blacklist (blocks all requests)
 
         Args:
             identifier: Client identifier to blacklist
             duration: Optional duration in seconds (permanent if None)
-
-        Examples:
-            >>> # Permanent blacklist
-            >>> limiter.add_to_blacklist('192.168.1.200')
-            >>>
-            >>> # Temporary blacklist (1 hour)
-            >>> limiter.add_to_blacklist('192.168.1.201', duration=3600)
+            persistent: Store in backend for distributed access
         """
         if not identifier:
             logger.warning("Attempted to blacklist empty identifier")
@@ -366,45 +393,58 @@ class RateThrottleCore:
 
         with self._lock:
             self.blacklist.add(identifier)
-            if duration:
+
+            if persistent:
                 try:
-                    self.storage.set(f"blacklist:{identifier}", True, duration)
-                    logger.warning(f"Added to blacklist for {duration}s: {identifier}")
+                    if self.use_distributed_lists:
+                        # Store in backend
+                        if duration:
+                            self.storage.set(
+                                f"blacklist:{identifier}",
+                                str(int(time.time() + duration)),
+                                ttl=duration,
+                            )
+                            logger.warning(f"Added to blacklist for {duration}s: {identifier}")
+                        else:
+                            # Permanent (30 days TTL, user must manually remove)
+                            self.storage.set(f"blacklist:{identifier}", "permanent", ttl=2592000)
+                            logger.warning(f"Added to permanent blacklist: {identifier}")
+                    else:
+                        logger.warning(f"Added to blacklist (local): {identifier}")
                 except Exception as e:
-                    logger.error(f"Failed to set blacklist TTL: {e}")
-            else:
-                logger.warning(f"Added to permanent blacklist: {identifier}")
+                    logger.error(f"Failed to persist blacklist entry: {e}")
 
     def remove_from_blacklist(self, identifier: str) -> bool:
-        """
-        Remove identifier from blacklist
-
-        Args:
-            identifier: Client identifier to remove
-
-        Returns:
-            True if removed, False if not in blacklist
-        """
+        """Remove identifier from blacklist"""
         with self._lock:
             was_blacklisted = identifier in self.blacklist
             if was_blacklisted:
                 self.blacklist.discard(identifier)
-                try:
-                    self.storage.delete(f"blacklist:{identifier}")
-                except Exception as e:
-                    logger.error(f"Failed to delete blacklist entry: {e}")
+
+                if self.use_distributed_lists:
+                    try:
+                        self.storage.delete(f"blacklist:{identifier}")
+                    except Exception as e:
+                        logger.error(f"Failed to remove persisted blacklist entry: {e}")
+
                 logger.info(f"Removed from blacklist: {identifier}")
+
             return was_blacklisted
 
     def is_blacklisted(self, identifier: str) -> bool:
         """Check if identifier is blacklisted"""
+        # Check local cache first
         if identifier in self.blacklist:
             return True
-        try:
-            return self.storage.exists(f"blacklist:{identifier}")
-        except Exception as e:
-            logger.error(f"Failed to check blacklist: {e}")
-            return False
+
+        # Check persistent storage
+        if self.use_distributed_lists:
+            try:
+                return self.storage.exists(f"blacklist:{identifier}")
+            except Exception:
+                pass
+
+        return False
 
     def register_violation_callback(
         self, callback: Callable[[RateThrottleViolation], None]
@@ -429,7 +469,7 @@ class RateThrottleCore:
         self, identifier: str, rule_name: str, metadata: Optional[Dict[str, Any]] = None
     ) -> RateThrottleStatus:
         """
-        Check if request is allowed under specified rule
+        Check if request is allowed under specified rule.
 
         Args:
             identifier: Client identifier (IP, user ID, etc.)
@@ -438,27 +478,26 @@ class RateThrottleCore:
 
         Returns:
             RateThrottleStatus indicating if request is allowed
+            - If rule doesn't exist, returns blocked status with rule_name="unknown_rule"
+            - If storage fails, behavior depends on failure_mode
 
-        Raises:
-            RuleNotFoundError: If rule doesn't exist
-            StorageError: If storage backend fails
-
-        Examples:
-            >>> status = limiter.check_rate_limit('192.168.1.1', 'api')
-            >>> if status.allowed:
-            ...     # Process request
-            ...     print(f"{status.remaining} requests remaining")
-            ... else:
-            ...     print(f"Rate limit exceeded. Retry after {status.retry_after}s")
+        Never raises exceptions - all errors converted to blocked status.
         """
         if not identifier:
             logger.warning("Empty identifier provided to check_rate_limit")
-            identifier = "unknown"
+            return RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=0,
+                reset_time=int(time.time()),
+                rule_name="error",
+                blocked=True,
+            )
 
         with self._lock:
             self.metrics["total_requests"] += 1
 
-            # Check whitelist
+            # Check whitelist first
             if identifier in self.whitelist:
                 self.metrics["allowed_requests"] += 1
                 logger.debug(f"Allowed (whitelisted): {identifier}")
@@ -470,34 +509,62 @@ class RateThrottleCore:
                     rule_name="whitelist",
                 )
 
-            # Check blacklist
-            if self.is_blacklisted(identifier):
+        # Check blacklist (outside lock for distributed support)
+        if self.is_blacklisted(identifier):
+            with self._lock:
                 self.metrics["blocked_requests"] += 1
-                logger.debug(f"Blocked (blacklisted): {identifier}")
+            logger.debug(f"Blocked (blacklisted): {identifier}")
+            return RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=0,
+                reset_time=int(time.time() + 86400),
+                retry_after=86400,
+                rule_name="blacklist",
+                blocked=True,
+            )
+
+        # Check if rule exists
+        with self._lock:
+            if rule_name not in self.rules:
+                self.metrics["blocked_requests"] += 1
+                logger.error(f"Rule not found: {rule_name}")
                 return RateThrottleStatus(
                     allowed=False,
                     remaining=0,
                     limit=0,
-                    reset_time=int(time.time() + 86400),
-                    retry_after=86400,
-                    rule_name="blacklist",
+                    reset_time=int(time.time()),
+                    rule_name="unknown_rule",
                     blocked=True,
-                )
-
-            # Get rule
-            if rule_name not in self.rules:
-                logger.error(f"Rule not found: {rule_name}")
-                raise RuleNotFoundError(
-                    f"Rule '{rule_name}' not found. "
-                    f"Available rules: {', '.join(self.rules.keys())}"
                 )
 
             rule = self.rules[rule_name]
 
-            # Check if currently blocked
-            block_key = f"blocked:{rule_name}:{identifier}"
+        # Check if currently blocked
+        block_key = f"blocked:{rule_name}:{identifier}"
 
-            try:
+        try:
+            if hasattr(self.storage, "check_and_delete_if_expired"):
+                exists, block_until = self.storage.check_and_delete_if_expired(block_key)
+                if exists and block_until is not None:
+                    retry_after = max(1, int(float(block_until) - time.time()))
+                    with self._lock:
+                        self.metrics["blocked_requests"] += 1
+                    logger.debug(
+                        f"Blocked (rate limit): {identifier} for rule {rule_name}, "
+                        f"retry after {retry_after}s"
+                    )
+
+                    return RateThrottleStatus(
+                        allowed=False,
+                        remaining=0,
+                        limit=rule.limit,
+                        reset_time=int(float(block_until)),
+                        retry_after=retry_after,
+                        rule_name=rule_name,
+                        blocked=True,
+                    )
+            else:
                 if self.storage.exists(block_key):
                     block_until = self.storage.get(block_key)
                     # Check if block has expired
@@ -509,7 +576,8 @@ class RateThrottleCore:
                         else:
                             # Still blocked
                             retry_after = max(1, int(block_until - time.time()))
-                            self.metrics["blocked_requests"] += 1
+                            with self._lock:
+                                self.metrics["blocked_requests"] += 1
                             logger.debug(
                                 f"Blocked (rate limit): {identifier} for rule {rule_name}, "
                                 f"retry after {retry_after}s"
@@ -524,66 +592,91 @@ class RateThrottleCore:
                                 rule_name=rule_name,
                                 blocked=True,
                             )
-            except Exception as e:
-                logger.error(f"Storage error checking block status: {e}")
-                raise StorageError(f"Failed to check block status: {e}") from e
+        except Exception as e:
+            logger.error(f"Storage error checking block status: {e}")
+            # Gracefully fail closed by default if storage errors
+            return RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=0,
+                reset_time=int(time.time()),
+                rule_name="error",
+                blocked=True,
+            )
 
-            # Apply rate limiting strategy
-            strategy = self.strategies.get(rule.strategy)
-            if not strategy:
-                logger.error(f"Strategy not found: {rule.strategy}")
-                raise StrategyNotFoundError(f"Strategy '{rule.strategy}' not found")
+        # Apply rate limiting strategy
+        strategy = self.strategies.get(rule.strategy)
+        if not strategy:
+            logger.error(f"Strategy not found: {rule.strategy}")
+            return RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=0,
+                reset_time=int(time.time()),
+                rule_name="strategy_error",
+                blocked=True,
+            )
 
-            try:
-                allowed, status = strategy.is_allowed(identifier, rule, self.storage)
-            except Exception as e:
-                logger.error(f"Strategy error: {e}")
-                raise StorageError(f"Rate limiting strategy failed: {e}") from e
+        try:
+            allowed, status = strategy.is_allowed(identifier, rule, self.storage)
+        except Exception as e:
+            logger.error(f"Strategy error: {e}")
+            return RateThrottleStatus(
+                allowed=False,
+                remaining=0,
+                limit=0,
+                reset_time=int(time.time()),
+                rule_name="storage_error",
+                blocked=True,
+            )
 
-            if allowed:
+        if allowed:
+            with self._lock:
                 self.metrics["allowed_requests"] += 1
-                logger.debug(
-                    f"Allowed: {identifier} for rule {rule_name}, " f"{status.remaining} remaining"
-                )
-            else:
+            logger.debug(
+                f"Allowed: {identifier} for rule {rule_name}, " f"{status.remaining} remaining"
+            )
+        else:
+            with self._lock:
                 self.metrics["blocked_requests"] += 1
-                logger.info(f"Rate limit exceeded: {identifier} for rule {rule_name}")
+            logger.info(f"Rate limit exceeded: {identifier} for rule {rule_name}")
 
-                # Block for configured duration
-                if rule.block_duration > 0:
-                    block_until = time.time() + rule.block_duration
-                    try:
-                        self.storage.set(block_key, int(block_until), rule.block_duration)
-                    except Exception as e:
-                        logger.error(f"Failed to set block: {e}")
+            # Block for configured duration
+            if rule.block_duration > 0:
+                block_until = time.time() + rule.block_duration
+                try:
+                    self.storage.set(block_key, int(block_until), rule.block_duration)
+                except Exception as e:
+                    logger.error(f"Failed to set block: {e}")
 
-                # Record violation
-                violation = RateThrottleViolation(
-                    identifier=identifier,
-                    rule_name=rule_name,
-                    timestamp=datetime.now().isoformat(),
-                    requests_made=rule.limit,
-                    limit=rule.limit,
-                    blocked_until=(
-                        datetime.fromtimestamp(time.time() + rule.block_duration).isoformat()
-                        if rule.block_duration > 0
-                        else None
-                    ),
-                    retry_after=status.retry_after or rule.block_duration,
-                    scope=rule.scope,
-                    metadata=metadata or {},
-                )
+            # Record violation
+            violation = RateThrottleViolation(
+                identifier=identifier,
+                rule_name=rule_name,
+                timestamp=datetime.now().isoformat(),
+                requests_made=rule.limit,
+                limit=rule.limit,
+                blocked_until=(
+                    datetime.fromtimestamp(time.time() + rule.block_duration).isoformat()
+                    if rule.block_duration > 0
+                    else None
+                ),
+                retry_after=status.retry_after or rule.block_duration,
+                scope=rule.scope,
+                metadata=metadata or {},
+            )
 
+            with self._lock:
                 self.metrics["violations"].append(violation)
 
-                # Trigger callbacks
-                for callback in self.violation_callbacks:
-                    try:
-                        callback(violation)
-                    except Exception as e:
-                        logger.error(f"Violation callback error ({callback.__name__}): {e}")
+            # Trigger callbacks
+            for callback in self.violation_callbacks:
+                try:
+                    callback(violation)
+                except Exception as e:
+                    logger.error(f"Violation callback error ({callback.__name__}): {e}")
 
-            return status
+        return status
 
     def get_metrics(self) -> Dict[str, Any]:
         """
@@ -606,7 +699,7 @@ class RateThrottleCore:
                     (self.metrics["blocked_requests"] / total * 100) if total > 0 else 0
                 ),
                 "total_violations": len(self.metrics["violations"]),
-                "recent_violations": self.metrics["violations"][-10:],
+                "recent_violations": list(self.metrics["violations"])[-10:],
                 "active_rules": len(self.rules),
                 "whitelisted_count": len(self.whitelist),
                 "blacklisted_count": len(self.blacklist),
@@ -624,7 +717,7 @@ class RateThrottleCore:
                 "total_requests": 0,
                 "allowed_requests": 0,
                 "blocked_requests": 0,
-                "violations": [],
+                "violations": deque(maxlen=1000),
             }
             logger.info("Metrics reset")
 

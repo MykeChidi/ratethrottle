@@ -55,3 +55,31 @@ class InvalidRuleError(RateThrottleException):
     """Raised when a rule configuration is invalid"""
 
     pass
+
+
+class StorageUnavailableError(RateThrottleException):
+    """Raised when storage backend is unavailable"""
+
+    def __init__(self, message: str, retry_after: int = 0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class RateLimitDegradedError(RateThrottleException):
+    """Raised when operating in degraded/fallback mode"""
+
+    def __init__(self, message: str, mode: str = "unknown"):
+        super().__init__(message)
+        self.mode = mode
+
+
+class InvalidIdentifierError(RateThrottleException):
+    """Raised when identifier is invalid or missing"""
+
+    pass
+
+
+class RuleConfigurationError(RateThrottleException):
+    """Raised when rule configuration is invalid"""
+
+    pass
