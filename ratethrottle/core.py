@@ -148,6 +148,7 @@ class RateThrottleStatus:
     retry_after: Optional[int] = None
     rule_name: Optional[str] = None
     blocked: bool = False
+    strategy: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert status to dictionary for JSON responses"""
@@ -159,6 +160,7 @@ class RateThrottleStatus:
             "retry_after": self.retry_after,
             "rule_name": self.rule_name,
             "blocked": self.blocked,
+            "strategy": self.strategy,
         }
 
     def to_headers(self) -> Dict[str, str]:

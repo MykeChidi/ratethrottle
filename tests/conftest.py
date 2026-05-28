@@ -86,3 +86,14 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "redis: mark test as requiring Redis connection")
     config.addinivalue_line("markers", "slow: mark test as slow running")
     config.addinivalue_line("markers", "integration: mark test as integration test")
+    config.addinivalue_line("markers", "asyncio: mark test as async")
+
+
+# Configure pytest-asyncio
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark async tests"""
+    for item in items:
+        if "asyncio" in item.keywords or item.get_closest_marker("asyncio"):
+            continue
+        if item.get_closest_marker("async"):
+            item.add_marker(pytest.mark.asyncio)

@@ -5,6 +5,8 @@ Helper functions for RateThrottle
 import logging
 from typing import List, Optional
 
+from .async_core import AsyncRateThrottleCore
+from .async_storage import AsyncInMemoryStorage, AsyncRedisStorage, AsyncStorageBackend
 from .core import RateThrottleCore
 from .exceptions import ConfigurationError
 from .storage_backend import InMemoryStorage, StorageBackend
@@ -103,6 +105,87 @@ def create_limiter(
         )
 
     return RateThrottleCore(storage=storage_backend)
+
+
+async def create_async_limiter(
+    storage: str = "memory", redis_url: Optional[str] = None, **storage_kwargs
+) -> AsyncRateThrottleCore:
+    """
+    Quick start helper to create an async rate limiter
+
+    Args:
+        storage: Storage type - 'memory' or 'redis'
+        redis_url: Redis connection URL (required if storage='redis')
+        **storage_kwargs: Additional arguments to pass to storage backend
+
+    Returns:
+        AsyncRateThrottleCore: Configured async rate limiter instance
+
+    Raises:
+        ConfigurationError: If configuration is invalid
+        ImportError: If required packages are missing
+
+    Examples:
+        >>> # In-memory storage (single instance)
+        >>> limiter = await create_async_limiter()
+
+        >>> # Redis storage (distributed)
+        >>> limiter = await create_async_limiter('redis', 'redis://localhost:6379/0')
+    """
+    storage_backend: AsyncStorageBackend
+
+    if storage == "memory":
+        logger.info("Creating async rate limiter with in-memory storage")
+        storage_backend = AsyncInMemoryStorage()
+
+    elif storage == "redis":
+        if not redis_url:
+            raise ConfigurationError(
+                "redis_url is required when using Redis storage. "
+                "Example: create_async_limiter('redis', 'redis://localhost:6379/0')"
+            )
+
+        try:
+            import redis.asyncio as redis  # noqa
+        except ImportError as e:
+            raise ImportError(
+                "Async Redis storage requires 'redis[asyncio]' package. "
+                "Install it with: pip install ratethrottle[redis]"
+            ) from e
+
+        try:
+            logger.info(f"Creating async rate limiter with Redis storage: {redis_url}")
+
+            # Parse connection arguments
+            connection_kwargs = {
+                "decode_responses": storage_kwargs.pop("decode_responses", False),
+                "socket_timeout": storage_kwargs.pop("socket_timeout", 5),
+                "socket_connect_timeout": storage_kwargs.pop("socket_connect_timeout", 5),
+                "retry_on_timeout": storage_kwargs.pop("retry_on_timeout", True),
+                "health_check_interval": storage_kwargs.pop("health_check_interval", 30),
+            }
+
+            # Add any remaining kwargs
+            connection_kwargs.update(storage_kwargs)
+
+            # Create AsyncRedisStorage
+            storage_backend = AsyncRedisStorage(redis_url=redis_url, **connection_kwargs)
+
+            # Test connection
+            if await storage_backend.health_check():
+                logger.info("Successfully connected to Redis")
+            else:
+                logger.warning("Health check failed for Redis connection")
+
+        except Exception as e:
+            raise ConfigurationError(f"Error creating async Redis storage backend: {e}") from e
+
+    else:
+        raise ConfigurationError(
+            f"Unknown storage type: {storage}. " f"Valid options are: 'memory', 'redis'"
+        )
+
+    return AsyncRateThrottleCore(storage=storage_backend)
 
 
 def parse_rate_limit(rate_string: str) -> tuple[int, int]:

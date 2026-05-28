@@ -11,8 +11,11 @@ from typing import Optional
 from .adaptive import AdaptiveRateLimiter
 from .alerting import AlertDispatcher
 from .analytics import RateThrottleAnalytics
+from .async_core import AsyncRateThrottleCore
+from .async_middleware import AsyncFastAPIRateLimiter, AsyncStarletteRateLimitMiddleware
+from .async_storage import AsyncInMemoryStorage, AsyncRedisStorage, AsyncStorageBackend
 from .config import ConfigManager
-from .core import RateThrottleCore, RateThrottleRule
+from .core import RateThrottleCore, RateThrottleRule, RateThrottleStatus, RateThrottleViolation
 from .ddos import DDoSProtection
 from .graphQL import (
     AriadneRateLimiter,
@@ -27,7 +30,7 @@ from .gRPC import (
     ServiceRateLimiter,
     grpc_ratelimit,
 )
-from .helpers import create_limiter, get_client_ip
+from .helpers import create_async_limiter, create_limiter, get_client_ip
 from .middleware import (
     DjangoRateLimitMiddleware,
     FastAPIRateLimiter,
@@ -46,7 +49,7 @@ from .websocket import (
     WebSocketRateLimiter,
 )
 
-__version__ = "1.3.3"
+__version__ = "1.4.0"
 __author__ = "MykeChidi"
 __license__ = "MIT"
 __all__ = [
@@ -56,10 +59,14 @@ __all__ = [
     "RateThrottleStatus",
     "RateThrottleViolation",
     "AdaptiveRateLimiter",
+    "AsyncRateThrottleCore",
     # Storage
     "StorageBackend",
     "InMemoryStorage",
     "RedisStorage",
+    "AsyncStorageBackend",
+    "AsyncInMemoryStorage",
+    "AsyncRedisStorage",
     # Monitoring and Alerting
     "AlertDispatcher",
     "RateThrottleMonitor",
@@ -70,12 +77,15 @@ __all__ = [
     "django_ratelimit",
     "StarletteRateLimitMiddleware",
     "WSGIRateLimitMiddleware",
+    "AsyncFastAPIRateLimiter",
+    "AsyncStarletteRateLimitMiddleware",
     # Config & Protection
     "ConfigManager",
     "DDoSProtection",
     "RateThrottleAnalytics",
     # Helpers
     "create_limiter",
+    "create_async_limiter",
     "get_client_ip",
     # Websocket
     "WebSocketLimits",
