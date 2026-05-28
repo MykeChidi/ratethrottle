@@ -13,9 +13,10 @@ import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Tuple
 
+from .async_storage import AsyncStorageBackend, AsyncRedisStorage
+
 if TYPE_CHECKING:
     from .core import RateThrottleRule, RateThrottleStatus
-    from .async_storage import AsyncStorageBackend, AsyncRedisStorage
 
 from .exceptions import StorageError
 

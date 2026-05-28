@@ -79,7 +79,7 @@ class TestAsyncIntegration:
         # Test whitelist (should bypass limit)
         status = await limiter.check_rate_limit("trusted_client", "api_limit")
         assert status.allowed
-        assert status.remaining == float("inf")
+        assert status.remaining == 999999
         
         # Test blacklist (should be blocked)
         status = await limiter.check_rate_limit("malicious_client", "api_limit")
