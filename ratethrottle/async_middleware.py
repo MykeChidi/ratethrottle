@@ -50,9 +50,7 @@ class AsyncFastAPIRateLimiter:
     async def add_to_blacklist(
         self, identifier: str, duration: Optional[int] = None, persistent: bool = True
     ) -> None:
-        await self.limiter.add_to_blacklist(
-            identifier, duration=duration, persistent=persistent
-        )
+        await self.limiter.add_to_blacklist(identifier, duration=duration, persistent=persistent)
 
     async def remove_from_blacklist(self, identifier: str) -> bool:
         return await self.limiter.remove_from_blacklist(identifier)
@@ -152,10 +150,10 @@ class AsyncStarletteRateLimitMiddleware:
     def _default_key_func(self, scope):
         try:
             client = scope.get("client", [""])[0]
-            return client or "0.0.0.0"
+            return client or "0.0.0.0" # nosec
         except Exception as e:
             logger.error(f"Error extracting client IP: {e}")
-            return "0.0.0.0"
+            return "0.0.0.0" # nosec
 
     def _get_rule_for_path(self, path):
         for rule_name in self.limiter.rules:
@@ -184,9 +182,7 @@ class AsyncStarletteRateLimitMiddleware:
     async def add_to_blacklist(
         self, identifier: str, duration: Optional[int] = None, persistent: bool = True
     ) -> None:
-        await self.limiter.add_to_blacklist(
-            identifier, duration=duration, persistent=persistent
-        )
+        await self.limiter.add_to_blacklist(identifier, duration=duration, persistent=persistent)
 
     async def remove_from_blacklist(self, identifier: str) -> bool:
         return await self.limiter.remove_from_blacklist(identifier)

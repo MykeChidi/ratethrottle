@@ -282,9 +282,7 @@ class AsyncRedisStorage(AsyncStorageBackend):
             import redis.asyncio as redis
 
             decode_responses = kwargs.pop("decode_responses", False)
-            self.redis = redis.from_url(
-                redis_url, decode_responses=decode_responses, **kwargs
-            )
+            self.redis = redis.from_url(redis_url, decode_responses=decode_responses, **kwargs)
             self.key_prefix = key_prefix
         except ImportError:
             raise StorageError("redis.asyncio package is required for AsyncRedisStorage")

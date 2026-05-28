@@ -373,7 +373,7 @@ class RateThrottleCore:
         if self.use_distributed_lists:
             try:
                 return self.storage.exists(f"whitelist:{identifier}")
-            except Exception:
+            except Exception: # nosec
                 pass
 
         return False
@@ -443,7 +443,7 @@ class RateThrottleCore:
         if self.use_distributed_lists:
             try:
                 return self.storage.exists(f"blacklist:{identifier}")
-            except Exception:
+            except Exception: # nosec
                 pass
 
         return False

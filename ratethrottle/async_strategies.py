@@ -46,8 +46,6 @@ class AsyncTokenBucketStrategy(AsyncRateLimitStrategy):
 
             burst_val = float(rule.burst if rule.burst is not None else rule.limit)
 
-            from .async_storage import AsyncRedisStorage
-
             if isinstance(storage, AsyncRedisStorage):
                 script = """
                 local state_str = redis.call('get', KEYS[1])
